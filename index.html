@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>mdAnything - Markdown Editor</title>
+  <link rel="icon" href="favicon.ico" type="image/x-icon" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Source+Han+Sans+SC:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
@@ -13,9 +14,12 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">mdAnything</div>
+    <div class="brand">
+      <img class="brand-icon" src="favicon.ico" alt="mdAnything icon" />
+      <span>mdAnything</span>
+    </div>
     <div class="topbar-right">
-      <label class="switch-wrap" for="renderToggle">
+      <label class="switch-wrap" for="renderToggle" data-onboarding-target="render-switch">
         <input type="checkbox" id="renderToggle" />
         <span>开启渲染</span>
       </label>
@@ -28,7 +32,7 @@
   </header>
 
   <main class="app-shell">
-    <aside class="toolbar-panel">
+    <aside class="toolbar-panel" data-onboarding-target="toolbar-panel">
       <h2>工具</h2>
 
       <section class="tool-group">
@@ -182,6 +186,16 @@
       </div>
     </form>
   </dialog>
+
+  <div class="onboarding-overlay" id="onboardingOverlay" aria-hidden="true"></div>
+  <section class="onboarding-card" id="onboardingCard" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+    <div class="onboarding-step" id="onboardingStep">步骤 1 / 3</div>
+    <h3 id="onboardingTitle">欢迎使用 mdAnything</h3>
+    <p id="onboardingDesc">这里会用三步带你快速上手。</p>
+    <div class="onboarding-actions">
+      <button type="button" class="onboarding-btn" id="onboardingNextBtn">下一步</button>
+    </div>
+  </section>
 
   <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>

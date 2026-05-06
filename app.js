@@ -36,14 +36,62 @@ const customMathSave = document.getElementById("customMathSave");
 const mathKeyboard = document.getElementById("mathKeyboard");
 const mathGrid = document.getElementById("mathGrid");
 const editorWrap = document.querySelector(".editor-wrap");
+const onboardingOverlay = document.getElementById("onboardingOverlay");
+const onboardingCard = document.getElementById("onboardingCard");
+const onboardingStep = document.getElementById("onboardingStep");
+const onboardingTitle = document.getElementById("onboardingTitle");
+const onboardingDesc = document.getElementById("onboardingDesc");
+const onboardingNextBtn = document.getElementById("onboardingNextBtn");
+const onboardingRenderTarget = document.querySelector('[data-onboarding-target="render-switch"]');
+const onboardingToolbarTarget = document.querySelector('[data-onboarding-target="toolbar-panel"]');
 
 const CUSTOM_MATH_STORAGE_KEY = "mdAnything.customMathItems";
+const FIRST_OPEN_STORAGE_KEY = "mdAnything.firstOpenDone";
+const DEFAULT_STARTER_CONTENT = [
+  "# This is a Markdown helper editor",
+  "",
+  "```python",
+  "print(\"You can write in-text code blocks.\")",
+  "```",
+  "",
+  "$$\\begin{pmatrix} OR & EVEN & HELP \\\\ YOU & WRITE & LATEX \\end{pmatrix}$$",
+  "",
+  "**Now try for yourself!**",
+  "",
+].join("\n");
+
+const ONBOARDING_STEPS = [
+  {
+    title: "步骤 1 / 3",
+    heading: "右上角开关可控制预览",
+    description: "在这里勾选“开启渲染”即可切换渲染预览。",
+    target: onboardingRenderTarget,
+    nextText: "下一步",
+  },
+  {
+    title: "步骤 2 / 3",
+    heading: "进入 LaTeX 会自动弹出数学键盘",
+    description: "当光标处在 $...$ 或 $$...$$ 数学模式时，下方数学键盘会自动展开。",
+    target: mathKeyboard,
+    nextText: "下一步",
+  },
+  {
+    title: "步骤 3 / 3",
+    heading: "左侧工具栏支持按钮与快捷键",
+    description: "点击左侧按钮可快速插入格式，也可以把鼠标停在按钮上查看快捷键提示。",
+    target: onboardingToolbarTarget,
+    nextText: "开始使用",
+  },
+];
+
 let lastValue = "";
 let pendingCodeTrigger = null;
 let pendingMathTemplate = null;
 let isRenderEnabled = false;
 let lastMathInput = null;
 let customMathItems = [];
+let onboardingIndex = -1;
+let forceMathKeyboardOpen = false;
 
 function syncOverlayScroll() {
   const top = isRenderEnabled ? renderLayer.scrollTop : editor.scrollTop;
@@ -823,6 +871,11 @@ function setRenderMode(enabled) {
 }
 
 function toggleMathKeyboard() {
+  if (forceMathKeyboardOpen) {
+    setMathKeyboardOpen(true);
+    return;
+  }
+
   if (isRenderEnabled) {
     setMathKeyboardOpen(false);
     return;
@@ -1086,6 +1139,84 @@ function refreshAll() {
   }
 
   lastValue = editor.value;
+}
+
+function clearOnboardingFocus() {
+  document.querySelectorAll(".onboarding-focus").forEach((el) => {
+    el.classList.remove("onboarding-focus");
+  });
+}
+
+function finishOnboarding() {
+  onboardingIndex = -1;
+  forceMathKeyboardOpen = false;
+  clearOnboardingFocus();
+  document.body.classList.remove("onboarding-open");
+  if (onboardingCard) onboardingCard.setAttribute("aria-hidden", "true");
+  if (onboardingOverlay) onboardingOverlay.setAttribute("aria-hidden", "true");
+  toggleMathKeyboard();
+}
+
+function applyOnboardingStep(index) {
+  if (index < 0 || index >= ONBOARDING_STEPS.length) {
+    finishOnboarding();
+    return;
+  }
+
+  onboardingIndex = index;
+  const step = ONBOARDING_STEPS[index];
+
+  clearOnboardingFocus();
+  if (step.target) {
+    step.target.classList.add("onboarding-focus");
+    step.target.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  }
+
+  forceMathKeyboardOpen = step.target === mathKeyboard;
+  if (forceMathKeyboardOpen) {
+    setMathKeyboardOpen(true);
+  } else {
+    toggleMathKeyboard();
+  }
+
+  onboardingStep.textContent = step.title;
+  onboardingTitle.textContent = step.heading;
+  onboardingDesc.textContent = step.description;
+  onboardingNextBtn.textContent = step.nextText;
+}
+
+function startOnboarding() {
+  if (!onboardingCard || !onboardingOverlay || !onboardingNextBtn) {
+    return;
+  }
+
+  document.body.classList.add("onboarding-open");
+  onboardingCard.setAttribute("aria-hidden", "false");
+  onboardingOverlay.setAttribute("aria-hidden", "false");
+  applyOnboardingStep(0);
+}
+
+function initializeDefaultState() {
+  const firstOpen = !window.localStorage.getItem(FIRST_OPEN_STORAGE_KEY);
+
+  if (firstOpen) {
+    editor.value = DEFAULT_STARTER_CONTENT;
+  }
+
+  const endPos = editor.value.length;
+  editor.setSelectionRange(endPos, endPos);
+
+  lineGuideToggle.checked = true;
+  document.body.classList.add("show-line-guides");
+
+  renderToggle.checked = true;
+  setRenderMode(true);
+  refreshAll();
+
+  if (firstOpen) {
+    window.localStorage.setItem(FIRST_OPEN_STORAGE_KEY, "1");
+    startOnboarding();
+  }
 }
 
 function bindToolbarActions() {
@@ -1401,8 +1532,19 @@ window.addEventListener("resize", () => {
   refreshAll();
 });
 
+if (onboardingNextBtn) {
+  onboardingNextBtn.addEventListener("click", () => {
+    applyOnboardingStep(onboardingIndex + 1);
+  });
+}
+
+if (onboardingOverlay) {
+  onboardingOverlay.addEventListener("click", (e) => {
+    e.preventDefault();
+  });
+}
+
 loadCustomMathBinding();
 bindToolbarActions();
 initMathKeyboard();
-setRenderMode(false);
-refreshAll();
+initializeDefaultState();

@@ -24,15 +24,26 @@ const downloadMdBtn = document.getElementById("downloadMdBtn");
 const downloadTxtBtn = document.getElementById("downloadTxtBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const downloadCancel = document.getElementById("downloadCancel");
+const customMathBtn = document.getElementById("customMathBtn");
+const customMathDialog = document.getElementById("customMathDialog");
+const customMathForm = document.getElementById("customMathForm");
+const customMathLabelInput = document.getElementById("customMathLabelInput");
+const customMathDisplayInput = document.getElementById("customMathDisplayInput");
+const customMathPreview = document.getElementById("customMathPreview");
+const customMathStatus = document.getElementById("customMathStatus");
+const customMathCancel = document.getElementById("customMathCancel");
+const customMathSave = document.getElementById("customMathSave");
 const mathKeyboard = document.getElementById("mathKeyboard");
 const mathGrid = document.getElementById("mathGrid");
 const editorWrap = document.querySelector(".editor-wrap");
 
+const CUSTOM_MATH_STORAGE_KEY = "mdAnything.customMathItems";
 let lastValue = "";
 let pendingCodeTrigger = null;
 let pendingMathTemplate = null;
 let isRenderEnabled = false;
 let lastMathInput = null;
+let customMathItems = [];
 
 function syncOverlayScroll() {
   const top = isRenderEnabled ? renderLayer.scrollTop : editor.scrollTop;
@@ -124,10 +135,10 @@ const mathKeys = [
   { display: "\\leftarrow", label: "←", snippet: "\\leftarrow " },
   { display: "\\Rightarrow", label: "⇒", snippet: "\\Rightarrow " },
   { display: "\\Leftrightarrow", label: "⇔", snippet: "\\Leftrightarrow " },
-  { display: "\\infty", label: "∞", snippet: "\\infty" },
+  { display: "\\infty", label: "∞", snippet: "\\infty " },
   // ── 上下标 ──
-  { display: "x^n", label: "xⁿ", snippet: "^{}" },
-  { display: "x_n", label: "x_n", snippet: "_{}" },
+  { display: "x^{n}", label: "xⁿ", snippet: "x^{}" },
+  { display: "x_{n}", label: "x_n", snippet: "x_{}" },
   // ── 结构模板 ──
   {
     display: "\\frac{a}{b}", label: "分数",
@@ -282,6 +293,106 @@ function wrapSelection(prefix, suffix) {
   refreshAll();
 }
 
+function insertMathSnippet(value) {
+  const mode = getMathModeAtCursor(editor.value, editor.selectionStart);
+  if (mode) {
+    insertText(value);
+    return;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    insertText(value);
+    return;
+  }
+
+  insertText(`$${trimmed}$ `);
+}
+
+function updateCustomMathButtonText() {
+  customMathBtn.textContent = "自定义";
+}
+
+function saveCustomMathItems() {
+  try {
+    window.localStorage.setItem(CUSTOM_MATH_STORAGE_KEY, JSON.stringify(customMathItems));
+  } catch (_) {
+    // Ignore storage failures.
+  }
+}
+
+function loadCustomMathBinding() {
+  try {
+    const raw = window.localStorage.getItem(CUSTOM_MATH_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        customMathItems = parsed
+          .filter((item) => item && typeof item === "object")
+          .map((item) => ({
+            label: String(item.label || "自定义"),
+            display: String(item.display || "").trim(),
+            snippet: String(item.display || "").trim(),
+          }))
+          .filter((item) => item.display.length > 0);
+      } else if (parsed && typeof parsed === "object" && parsed.display) {
+        // Compatibility migration from old single-binding data.
+        customMathItems = [{
+          label: String(parsed.label || "自定义"),
+          display: String(parsed.display).trim(),
+          snippet: String(parsed.display).trim(),
+        }].filter((item) => item.display.length > 0);
+      }
+    }
+  } catch (_) {
+    // Ignore malformed local storage and keep defaults.
+  }
+
+  updateCustomMathButtonText();
+}
+
+function validateCustomMathLatex(latex) {
+  const value = (latex || "").trim();
+  if (!value.length) {
+    return { valid: false, html: "", message: "表达式不能为空。" };
+  }
+
+  try {
+    const html = window.katex.renderToString(value, { throwOnError: true, displayMode: false });
+    return { valid: true, html, message: "表达式合法，可保存。" };
+  } catch (err) {
+    return { valid: false, html: "", message: `表达式无效：${err.message}` };
+  }
+}
+
+function updateCustomMathPreview() {
+  const latex = customMathDisplayInput.value;
+  const label = (customMathLabelInput.value || "").trim();
+  const result = validateCustomMathLatex(latex);
+
+  if (result.valid) {
+    customMathPreview.innerHTML = result.html;
+    customMathStatus.textContent = result.message;
+    customMathStatus.classList.remove("err");
+    customMathStatus.classList.add("ok");
+  } else {
+    customMathPreview.textContent = "预览失败";
+    customMathStatus.textContent = result.message;
+    customMathStatus.classList.remove("ok");
+    customMathStatus.classList.add("err");
+  }
+
+  customMathSave.disabled = !(result.valid && label.length > 0);
+}
+
+function openCustomMathDialog() {
+  customMathLabelInput.value = "自定义";
+  customMathDisplayInput.value = "\\Omega";
+  updateCustomMathPreview();
+  customMathDialog.showModal();
+  customMathDisplayInput.focus();
+}
+
 function insertMarkdownLink(url, isImage = false) {
   const start = editor.selectionStart;
   const end = editor.selectionEnd;
@@ -319,7 +430,8 @@ async function insertImageLinkFromClipboard() {
 
 function initMathKeyboard() {
   mathGrid.innerHTML = "";
-  mathKeys.forEach((item) => {
+
+  const appendMathKey = (item) => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "math-key";
@@ -362,10 +474,13 @@ function initMathKeyboard() {
         openMathTemplateDialog(item);
         return;
       }
-      insertText(item.snippet);
+      insertMathSnippet(item.snippet);
     });
     mathGrid.appendChild(btn);
-  });
+  };
+
+  mathKeys.forEach((item) => appendMathKey(item));
+  customMathItems.forEach((item) => appendMathKey(item));
 }
 
 function generateMdTable(rows, cols) {
@@ -888,7 +1003,7 @@ function closeMathOnEnter(e) {
   if (e.key !== "Enter") return;
   if (isRenderEnabled) return;
 
-  const cursor = editor.selectionStart;
+  let cursor = editor.selectionStart;
   const value = editor.value;
   const mode = getMathModeAtCursor(value, cursor);
   if (!mode) return;
@@ -899,6 +1014,12 @@ function closeMathOnEnter(e) {
   }
 
   e.preventDefault();
+
+  if (cursor > 0 && value[cursor - 1] === " ") {
+    editor.setRangeText("", cursor - 1, cursor, "end");
+    cursor -= 1;
+  }
+
   const insertion = mode === "block" ? "$$\n" : "$\n";
   editor.setRangeText(insertion, cursor, cursor, "end");
   refreshAll();
@@ -1196,7 +1317,7 @@ mathTemplateForm.addEventListener("submit", (e) => {
     snippet = buildMathSnippetFromTemplate(pendingMathTemplate, values);
   }
 
-  insertText(snippet);
+  insertMathSnippet(snippet);
   pendingMathTemplate = null;
   lastMathInput = null;
   mathTemplateDialog.close();
@@ -1227,6 +1348,43 @@ downloadPdfBtn.addEventListener("click", () => {
   downloadPdf();
 });
 
+customMathBtn.addEventListener("click", () => {
+  openCustomMathDialog();
+});
+
+customMathCancel.addEventListener("click", () => {
+  customMathDialog.close();
+  editor.focus();
+});
+
+customMathForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  updateCustomMathPreview();
+  if (customMathSave.disabled) {
+    return;
+  }
+
+  customMathItems.push({
+    label: customMathLabelInput.value.trim(),
+    display: customMathDisplayInput.value.trim(),
+    snippet: customMathDisplayInput.value.trim(),
+  });
+
+  saveCustomMathItems();
+
+  initMathKeyboard();
+  customMathDialog.close();
+  editor.focus();
+});
+
+[customMathLabelInput, customMathDisplayInput].forEach((input) => {
+  input.addEventListener("input", updateCustomMathPreview);
+});
+
+customMathDialog.addEventListener("close", () => {
+  customMathStatus.classList.remove("ok", "err");
+});
+
 lineGuideToggle.addEventListener("change", () => {
   document.body.classList.toggle("show-line-guides", lineGuideToggle.checked);
   refreshAll();
@@ -1243,6 +1401,7 @@ window.addEventListener("resize", () => {
   refreshAll();
 });
 
+loadCustomMathBinding();
 bindToolbarActions();
 initMathKeyboard();
 setRenderMode(false);

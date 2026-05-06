@@ -525,10 +525,48 @@ body.math-open .editor-panel {
   transform: translateY(0);
 }
 
-.math-title {
+.math-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 8px 12px 4px;
+}
+
+.math-title {
+  padding: 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.custom-math-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 7px;
+  white-space: nowrap;
+}
+
+.math-preview-box {
+  min-height: 44px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+}
+
+.math-preview-status {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.math-preview-status.ok {
+  color: #0f766e;
+}
+
+.math-preview-status.err {
+  color: #b91c1c;
 }
 
 .math-grid {

@@ -89,7 +89,10 @@
   </main>
 
   <section class="math-keyboard" id="mathKeyboard" aria-hidden="true">
-    <div class="math-title">数学符号键盘</div>
+    <div class="math-head">
+      <div class="math-title">数学符号键盘</div>
+      <button type="button" class="download-btn custom-math-btn" id="customMathBtn" title="新增一个自定义数学按钮">自定义</button>
+    </div>
     <div class="math-grid" id="mathGrid"></div>
   </section>
 
@@ -156,6 +159,26 @@
       </div>
       <div class="dialog-actions">
         <button type="button" id="downloadCancel">取消</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="customMathDialog">
+    <form method="dialog" class="dialog-form" id="customMathForm">
+      <h3>自定义数学按钮</h3>
+      <label>
+        按钮标题
+        <input id="customMathLabelInput" value="Ω" maxlength="8" required />
+      </label>
+      <label>
+        预览表达式 (KaTeX)
+        <input id="customMathDisplayInput" value="\Omega" required />
+      </label>
+      <div class="math-preview-box" id="customMathPreview"></div>
+      <div class="math-preview-status" id="customMathStatus"></div>
+      <div class="dialog-actions">
+        <button type="button" id="customMathCancel">取消</button>
+        <button type="submit" id="customMathSave">保存</button>
       </div>
     </form>
   </dialog>

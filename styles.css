@@ -336,6 +336,106 @@ body.math-open .editor-panel {
   padding: 1px 4px;
 }
 
+.render-layer strong,
+.render-layer b,
+.render-layer em,
+.render-layer i {
+  color: var(--accent);
+}
+
+.render-line.code-fence-line {
+  background: #f8fafc;
+  border-left: 1px solid #d1d5db;
+  border-right: 1px solid #d1d5db;
+}
+
+.render-line.code-fence-line code {
+  display: block;
+  padding: 8px 10px;
+  background: transparent;
+  border-radius: 0;
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* Local fallback for GitHub-like syntax colors when remote hljs theme is unavailable. */
+.render-layer .hljs {
+  color: #24292e;
+  background: transparent;
+}
+
+.render-layer .hljs-comment,
+.render-layer .hljs-quote {
+  color: #6a737d;
+  font-style: italic;
+}
+
+.render-layer .hljs-keyword,
+.render-layer .hljs-selector-tag,
+.render-layer .hljs-subst,
+.render-layer .hljs-doctag,
+.render-layer .hljs-meta .hljs-keyword {
+  color: #d73a49;
+}
+
+.render-layer .hljs-string,
+.render-layer .hljs-regexp,
+.render-layer .hljs-attr,
+.render-layer .hljs-template-tag,
+.render-layer .hljs-template-variable,
+.render-layer .hljs-addition {
+  color: #032f62;
+}
+
+.render-layer .hljs-title,
+.render-layer .hljs-section,
+.render-layer .hljs-name,
+.render-layer .hljs-selector-id,
+.render-layer .hljs-selector-class,
+.render-layer .hljs-type,
+.render-layer .hljs-built_in,
+.render-layer .hljs-class .hljs-title {
+  color: #6f42c1;
+}
+
+.render-layer .hljs-number,
+.render-layer .hljs-literal,
+.render-layer .hljs-symbol,
+.render-layer .hljs-bullet,
+.render-layer .hljs-link {
+  color: #005cc5;
+}
+
+.render-layer .hljs-variable,
+.render-layer .hljs-params,
+.render-layer .hljs-property,
+.render-layer .hljs-operator,
+.render-layer .hljs-punctuation,
+.render-layer .hljs-deletion {
+  color: #24292e;
+}
+
+.render-line.code-fence-start {
+  border-top: 1px solid #d1d5db;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.render-line.code-fence-middle {
+  border-top: 0;
+}
+
+.render-line.code-fence-end {
+  border-bottom: 1px solid #d1d5db;
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+.render-line.code-fence-single {
+  border-top: 1px solid #d1d5db;
+  border-bottom: 1px solid #d1d5db;
+  border-radius: 8px;
+}
+
 #editor {
   flex: 1;
   border: 0;

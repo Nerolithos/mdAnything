@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Source+Han+Sans+SC:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.10.0/styles/github.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/styles/github.min.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -70,7 +70,7 @@
         <div class="line-numbers" id="lineNumbers"></div>
         <div class="guide-layer" id="guideLayer" aria-hidden="true"></div>
         <div class="render-layer" id="renderLayer" aria-hidden="true"></div>
-        <textarea id="editor" spellcheck="false" placeholder="开始输入 Markdown...\n\n输入 $$ 会自动进入数学模式，下一次 $$ 结束。\n输入 $ 进入单行数学模式，下一次 $ 结束。\n输入 ``` 或 ` 会触发语言选择。"></textarea>
+        <textarea id="editor" spellcheck="false" placeholder="开始输入 Markdown...\n\n输入 $$ 会自动进入数学模式，下一次 $$ 结束。\n输入 $ 进入单行数学模式，下一次 $ 结束。\n输入 ``` 会触发语言选择。"></textarea>
       </div>
     </section>
   </main>
@@ -102,11 +102,14 @@
           <option value="javascript">javascript</option>
           <option value="typescript">typescript</option>
           <option value="python">python</option>
+          <option value="bash">shell(bash)</option>
+          <option value="php">php</option>
+          <option value="yaml">yaml</option>
+          <option value="toml">toml</option>
           <option value="cpp">cpp</option>
           <option value="java">java</option>
           <option value="go">go</option>
           <option value="rust">rust</option>
-          <option value="bash">bash</option>
           <option value="json">json</option>
           <option value="html">html</option>
           <option value="css">css</option>
@@ -147,7 +150,7 @@
   <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/markdown-it-texmath@1.0.0/texmath.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.10.0/lib/common.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
   <script src="app.js"></script>
 </body>

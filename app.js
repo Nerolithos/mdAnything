@@ -490,14 +490,80 @@ function renderSingleLine(line) {
   return md.render(line).trim();
 }
 
+function resolveHighlightLanguage(language) {
+  if (!window.hljs || !language) return null;
+  if (window.hljs.getLanguage(language)) return language;
+
+  const aliasMap = {
+    cpp: "c++",
+    shell: "bash",
+    sh: "bash",
+    yml: "yaml",
+    text: "plaintext",
+  };
+
+  const alias = aliasMap[language];
+  if (alias && window.hljs.getLanguage(alias)) {
+    return alias;
+  }
+  return null;
+}
+
 function renderPreview(lines) {
   if (!isRenderEnabled) {
     renderLayer.innerHTML = "";
     return;
   }
 
+  let inFence = false;
+  let fenceLang = "plaintext";
+
   renderLayer.innerHTML = lines
-    .map((line, idx) => `<div class="render-line" data-line="${idx + 1}">${renderSingleLine(line)}</div>`)
+    .map((line, idx) => {
+      const fenceMatch = line.match(/^\s*```([\w+-]*)\s*$/);
+      if (fenceMatch) {
+        if (!inFence) {
+          inFence = true;
+          fenceLang = fenceMatch[1] || "plaintext";
+        } else {
+          inFence = false;
+          fenceLang = "plaintext";
+        }
+        return `<div class="render-line" data-line="${idx + 1}">&nbsp;</div>`;
+      }
+
+      if (inFence) {
+        const prevLine = idx > 0 ? lines[idx - 1] : "";
+        const nextLine = idx + 1 < lines.length ? lines[idx + 1] : "";
+        const prevIsFence = /^\s*```([\w+-]*)\s*$/.test(prevLine);
+        const nextIsFence = /^\s*```([\w+-]*)\s*$/.test(nextLine);
+        const segmentClass = prevIsFence && nextIsFence
+          ? "code-fence-single"
+          : prevIsFence
+            ? "code-fence-start"
+            : nextIsFence
+              ? "code-fence-end"
+              : "code-fence-middle";
+
+        const resolvedLanguage = resolveHighlightLanguage(fenceLang);
+        let highlighted = md.utils.escapeHtml(line);
+        try {
+          if (line.trim().length > 0) {
+            if (resolvedLanguage) {
+              highlighted = window.hljs.highlight(line, { language: resolvedLanguage, ignoreIllegals: true }).value;
+            } else {
+              highlighted = window.hljs.highlightAuto(line).value;
+            }
+          }
+        } catch (_) {
+          highlighted = md.utils.escapeHtml(line);
+        }
+
+        return `<div class="render-line code-fence-line ${segmentClass}" data-line="${idx + 1}"><code class="hljs language-${fenceLang}">${highlighted || "&nbsp;"}</code></div>`;
+      }
+
+      return `<div class="render-line" data-line="${idx + 1}">${renderSingleLine(line)}</div>`;
+    })
     .join("");
 
   renderLayer.querySelectorAll("pre code").forEach((el) => {
@@ -778,14 +844,11 @@ function applyLanguageChoice(language) {
       const pos = cleanBefore.length + language.length + 5;
       editor.setSelectionRange(pos, pos);
     }
-  } else if (pendingCodeTrigger === "inline") {
-    if (before.endsWith("`") && !before.endsWith("``")) {
-      const cleanBefore = before.slice(0, -1);
-      const inline = `<code class=\"language-${language}\"></code>`;
-      editor.value = `${cleanBefore}${inline}${after}`;
-      const pos = cleanBefore.length + inline.length - 7;
-      editor.setSelectionRange(pos, pos);
-    }
+  } else if (pendingCodeTrigger === "toolbar-fence") {
+    const block = `\`\`\`${language}\n\n\`\`\`\n`;
+    editor.setRangeText(block, cursor, cursor, "end");
+    const pos = cursor + language.length + 5;
+    editor.setSelectionRange(pos, pos);
   }
 
   pendingCodeTrigger = null;
@@ -797,11 +860,6 @@ function detectCodeTrigger() {
   const before = editor.value.slice(0, cursor);
   if (before.endsWith("```")) {
     openLanguageDialog("fence");
-    return;
-  }
-
-  if (before.endsWith("`") && !before.endsWith("``")) {
-    openLanguageDialog("inline");
   }
 }
 
@@ -869,7 +927,7 @@ function bindToolbarActions() {
           wrapSelection("`", "`");
           break;
         case "code-block":
-          insertText("```plaintext\n\n```\n");
+          openLanguageDialog("toolbar-fence");
           break;
         case "insert-inline-math":
           insertText("$ $");

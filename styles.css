@@ -140,14 +140,14 @@ body {
 .tool-btn[data-shortcut]:focus-visible::after {
   content: attr(data-shortcut);
   position: absolute;
-  left: calc(100% + 8px);
+  right: 8px;
   top: 50%;
   transform: translateY(-50%);
   background: #111827;
   color: #f9fafb;
   border: 1px solid #374151;
   border-radius: 6px;
-  padding: 4px 8px;
+  padding: 3px 8px;
   font-size: 12px;
   white-space: nowrap;
   z-index: 200;

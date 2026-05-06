@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mdAnything - Markdown Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Han+Sans+SC:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.10.0/styles/github.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">mdAnything</div>
+    <div class="topbar-right">
+      <label class="switch-wrap" for="renderToggle">
+        <input type="checkbox" id="renderToggle" />
+        <span>开启渲染</span>
+      </label>
+      <label class="switch-wrap" for="lineGuideToggle">
+        <input type="checkbox" id="lineGuideToggle" />
+        <span>行辅助线</span>
+      </label>
+      <button class="download-btn" id="downloadBtn" type="button">下载</button>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <aside class="toolbar-panel">
+      <h2>工具</h2>
+
+      <section class="tool-group">
+        <h3>格式</h3>
+        <div class="heading-picker">
+          <button class="tool-btn heading-main" type="button">标题</button>
+          <div class="heading-menu">
+            <button class="tool-btn" type="button" data-action="heading-1"># 一级标题</button>
+            <button class="tool-btn" type="button" data-action="heading-2">## 二级标题</button>
+            <button class="tool-btn" type="button" data-action="heading-3">### 三级标题</button>
+            <button class="tool-btn" type="button" data-action="heading-4">#### 四级标题</button>
+          </div>
+        </div>
+        <button class="tool-btn" data-action="bold" data-shortcut="Ctrl/Cmd + B">粗体</button>
+        <button class="tool-btn" data-action="italic" data-shortcut="Ctrl/Cmd + I">斜体</button>
+        <button class="tool-btn" data-action="underline" data-shortcut="Ctrl/Cmd + Shift + U">下划线</button>
+        <button class="tool-btn" data-action="strike" data-shortcut="Ctrl/Cmd + Shift + X">删除线</button>
+        <button class="tool-btn" data-action="sup" data-shortcut="Ctrl/Cmd + U">上角标</button>
+        <button class="tool-btn" data-action="sub" data-shortcut="Ctrl/Cmd + J">下角标</button>
+      </section>
+
+      <section class="tool-group">
+        <h3>代码与数学</h3>
+        <button class="tool-btn" data-action="inline-code" data-shortcut="Ctrl/Cmd + K">行内代码</button>
+        <button class="tool-btn" data-action="code-block" data-shortcut="Ctrl/Cmd + Shift + K">代码块</button>
+        <button class="tool-btn" data-action="insert-inline-math">插入 $...$</button>
+        <button class="tool-btn" data-action="insert-block-math">插入 $$...$$</button>
+      </section>
+
+      <section class="tool-group">
+        <h3>表格</h3>
+        <button class="tool-btn" id="openTableBuilder">建表</button>
+        <button class="tool-btn" id="convertToTable">文本转 MD 表格</button>
+      </section>
+    </aside>
+
+    <section class="editor-panel">
+      <div class="editor-wrap">
+        <div class="line-numbers" id="lineNumbers"></div>
+        <div class="guide-layer" id="guideLayer" aria-hidden="true"></div>
+        <div class="render-layer" id="renderLayer" aria-hidden="true"></div>
+        <textarea id="editor" spellcheck="false" placeholder="开始输入 Markdown...\n\n输入 $$ 会自动进入数学模式，下一次 $$ 结束。\n输入 $ 进入单行数学模式，下一次 $ 结束。\n输入 ``` 或 ` 会触发语言选择。"></textarea>
+      </div>
+    </section>
+  </main>
+
+  <section class="math-keyboard" id="mathKeyboard" aria-hidden="true">
+    <div class="math-title">数学符号键盘</div>
+    <div class="math-grid" id="mathGrid"></div>
+  </section>
+
+  <dialog id="tableDialog">
+    <form method="dialog" class="dialog-form" id="tableForm">
+      <h3>创建表格</h3>
+      <label>行数 <input type="number" min="1" value="3" id="tableRows" required /></label>
+      <label>列数 <input type="number" min="1" value="3" id="tableCols" required /></label>
+      <div class="dialog-actions">
+        <button type="button" id="tableCancel">取消</button>
+        <button type="submit">插入</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="languageDialog">
+    <form method="dialog" class="dialog-form" id="languageForm">
+      <h3>选择代码语言</h3>
+      <label>
+        语言
+        <select id="languageSelect">
+          <option value="plaintext">plaintext</option>
+          <option value="javascript">javascript</option>
+          <option value="typescript">typescript</option>
+          <option value="python">python</option>
+          <option value="cpp">cpp</option>
+          <option value="java">java</option>
+          <option value="go">go</option>
+          <option value="rust">rust</option>
+          <option value="bash">bash</option>
+          <option value="json">json</option>
+          <option value="html">html</option>
+          <option value="css">css</option>
+        </select>
+      </label>
+      <div class="dialog-actions">
+        <button type="button" id="languageCancel">取消</button>
+        <button type="submit">确定</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="mathTemplateDialog">
+    <form method="dialog" class="dialog-form" id="mathTemplateForm">
+      <h3 id="mathTemplateTitle">数学模板</h3>
+      <div id="mathTemplateFields"></div>
+      <div class="dialog-actions">
+        <button type="button" id="mathTemplateCancel">取消</button>
+        <button type="submit">插入</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="downloadDialog">
+    <form method="dialog" class="dialog-form" id="downloadForm">
+      <h3>选择下载格式</h3>
+      <div class="dialog-actions">
+        <button type="button" id="downloadMdBtn">下载 .md</button>
+        <button type="button" id="downloadTxtBtn">下载 .txt</button>
+        <button type="button" id="downloadPdfBtn">下载 .pdf</button>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="downloadCancel">取消</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it-texmath@1.0.0/texmath.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.10.0/lib/common.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -282,6 +282,41 @@ function wrapSelection(prefix, suffix) {
   refreshAll();
 }
 
+function insertMarkdownLink(url, isImage = false) {
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+  const prev = editor.value;
+  const selected = prev.slice(start, end);
+  const label = selected.length ? selected : (isImage ? "image" : "link text");
+  const prefix = isImage ? "!" : "";
+  const link = `${prefix}[${label}](${url})`;
+
+  editor.value = `${prev.slice(0, start)}${link}${prev.slice(end)}`;
+  const urlStart = start + prefix.length + label.length + 3;
+  const urlEnd = urlStart + url.length;
+  editor.setSelectionRange(urlStart, urlEnd);
+  editor.focus();
+  refreshAll();
+}
+
+async function insertImageLinkFromClipboard() {
+  let clipText = "";
+  try {
+    clipText = (await navigator.clipboard.readText()) || "";
+  } catch (_) {
+    window.alert("无法读取剪贴板，请先授予剪贴板权限，或先手动粘贴后再使用该功能。");
+    return;
+  }
+
+  const content = clipText.trim();
+  if (!content) {
+    window.alert("剪贴板为空，无法生成图片链接。");
+    return;
+  }
+
+  insertMarkdownLink(content, true);
+}
+
 function initMathKeyboard() {
   mathGrid.innerHTML = "";
   mathKeys.forEach((item) => {
@@ -509,6 +544,22 @@ function resolveHighlightLanguage(language) {
   return null;
 }
 
+function isMarkdownTableRow(line) {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return false;
+  if (!/^\|?.+\|.+\|?$/.test(trimmed)) return false;
+  return true;
+}
+
+function isMarkdownTableSeparator(line) {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return false;
+  const core = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+  const cells = core.split("|").map((cell) => cell.trim());
+  if (!cells.length) return false;
+  return cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
 function renderPreview(lines) {
   if (!isRenderEnabled) {
     renderLayer.innerHTML = "";
@@ -518,53 +569,81 @@ function renderPreview(lines) {
   let inFence = false;
   let fenceLang = "plaintext";
 
-  renderLayer.innerHTML = lines
-    .map((line, idx) => {
-      const fenceMatch = line.match(/^\s*```([\w+-]*)\s*$/);
-      if (fenceMatch) {
-        if (!inFence) {
-          inFence = true;
-          fenceLang = fenceMatch[1] || "plaintext";
-        } else {
-          inFence = false;
-          fenceLang = "plaintext";
-        }
-        return `<div class="render-line" data-line="${idx + 1}">&nbsp;</div>`;
+  const htmlParts = [];
+
+  for (let idx = 0; idx < lines.length; idx += 1) {
+    const line = lines[idx];
+    const fenceMatch = line.match(/^\s*```([\w+-]*)\s*$/);
+    if (fenceMatch) {
+      if (!inFence) {
+        inFence = true;
+        fenceLang = fenceMatch[1] || "plaintext";
+      } else {
+        inFence = false;
+        fenceLang = "plaintext";
       }
+      htmlParts.push(`<div class="render-line" data-line="${idx + 1}">&nbsp;</div>`);
+      continue;
+    }
 
-      if (inFence) {
-        const prevLine = idx > 0 ? lines[idx - 1] : "";
-        const nextLine = idx + 1 < lines.length ? lines[idx + 1] : "";
-        const prevIsFence = /^\s*```([\w+-]*)\s*$/.test(prevLine);
-        const nextIsFence = /^\s*```([\w+-]*)\s*$/.test(nextLine);
-        const segmentClass = prevIsFence && nextIsFence
-          ? "code-fence-single"
-          : prevIsFence
-            ? "code-fence-start"
-            : nextIsFence
-              ? "code-fence-end"
-              : "code-fence-middle";
+    if (inFence) {
+      const prevLine = idx > 0 ? lines[idx - 1] : "";
+      const nextLine = idx + 1 < lines.length ? lines[idx + 1] : "";
+      const prevIsFence = /^\s*```([\w+-]*)\s*$/.test(prevLine);
+      const nextIsFence = /^\s*```([\w+-]*)\s*$/.test(nextLine);
+      const segmentClass = prevIsFence && nextIsFence
+        ? "code-fence-single"
+        : prevIsFence
+          ? "code-fence-start"
+          : nextIsFence
+            ? "code-fence-end"
+            : "code-fence-middle";
 
-        const resolvedLanguage = resolveHighlightLanguage(fenceLang);
-        let highlighted = md.utils.escapeHtml(line);
-        try {
-          if (line.trim().length > 0) {
-            if (resolvedLanguage) {
-              highlighted = window.hljs.highlight(line, { language: resolvedLanguage, ignoreIllegals: true }).value;
-            } else {
-              highlighted = window.hljs.highlightAuto(line).value;
-            }
+      const resolvedLanguage = resolveHighlightLanguage(fenceLang);
+      let highlighted = md.utils.escapeHtml(line);
+      try {
+        if (line.trim().length > 0) {
+          if (resolvedLanguage) {
+            highlighted = window.hljs.highlight(line, { language: resolvedLanguage, ignoreIllegals: true }).value;
+          } else {
+            highlighted = window.hljs.highlightAuto(line).value;
           }
-        } catch (_) {
-          highlighted = md.utils.escapeHtml(line);
         }
-
-        return `<div class="render-line code-fence-line ${segmentClass}" data-line="${idx + 1}"><code class="hljs language-${fenceLang}">${highlighted || "&nbsp;"}</code></div>`;
+      } catch (_) {
+        highlighted = md.utils.escapeHtml(line);
       }
 
-      return `<div class="render-line" data-line="${idx + 1}">${renderSingleLine(line)}</div>`;
-    })
-    .join("");
+      htmlParts.push(`<div class="render-line code-fence-line ${segmentClass}" data-line="${idx + 1}"><code class="hljs language-${fenceLang}">${highlighted || "&nbsp;"}</code></div>`);
+      continue;
+    }
+
+    const isTableStart =
+      idx + 1 < lines.length
+      && isMarkdownTableRow(line)
+      && isMarkdownTableSeparator(lines[idx + 1]);
+
+    if (isTableStart) {
+      let end = idx + 2;
+      while (end < lines.length && isMarkdownTableRow(lines[end])) {
+        end += 1;
+      }
+
+      const tableBlock = lines.slice(idx, end).join("\n");
+      const tableHtml = md.render(tableBlock).trim();
+      htmlParts.push(`<div class="render-line" data-line="${idx + 1}">${tableHtml}</div>`);
+
+      for (let row = idx + 1; row < end; row += 1) {
+        htmlParts.push(`<div class="render-line" data-line="${row + 1}">&nbsp;</div>`);
+      }
+
+      idx = end - 1;
+      continue;
+    }
+
+    htmlParts.push(`<div class="render-line" data-line="${idx + 1}">${renderSingleLine(line)}</div>`);
+  }
+
+  renderLayer.innerHTML = htmlParts.join("");
 
   renderLayer.querySelectorAll("pre code").forEach((el) => {
     window.hljs.highlightElement(el);
@@ -937,6 +1016,18 @@ function bindToolbarActions() {
           insertText("$$\n\n$$\n");
           editor.setSelectionRange(editor.selectionStart - 4, editor.selectionStart - 4);
           break;
+        case "insert-web-link":
+          insertMarkdownLink("https://example.com");
+          break;
+        case "insert-image-link":
+          insertMarkdownLink("https://example.com/image.png", true);
+          break;
+        case "insert-file-link":
+          insertMarkdownLink("./path/to/file.ext");
+          break;
+        case "insert-image-link-from-clipboard":
+          void insertImageLinkFromClipboard();
+          break;
         default:
           break;
       }
@@ -988,6 +1079,9 @@ editor.addEventListener("keydown", (e) => {
   if (key === "k" && e.shiftKey) {
     e.preventDefault();
     insertText("```plaintext\n\n```\n");
+  } else if (key === "g" && e.shiftKey) {
+    e.preventDefault();
+    void insertImageLinkFromClipboard();
   } else if (key === "x" && e.shiftKey) {
     e.preventDefault();
     wrapSelection("~~", "~~");

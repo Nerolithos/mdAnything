@@ -337,10 +337,14 @@ body.math-open .editor-panel {
 }
 
 .render-layer strong,
-.render-layer b,
+.render-layer b {
+  color: #0b8f84;
+  font-weight: 800;
+}
+
 .render-layer em,
 .render-layer i {
-  color: var(--accent);
+  color: #0b8f84;
 }
 
 .render-line.code-fence-line {

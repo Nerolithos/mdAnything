@@ -36,6 +36,11 @@ const customMathSave = document.getElementById("customMathSave");
 const mathKeyboard = document.getElementById("mathKeyboard");
 const mathGrid = document.getElementById("mathGrid");
 const editorWrap = document.querySelector(".editor-wrap");
+const welcomeScreen = document.getElementById("welcomeScreen");
+const welcomeRain = document.getElementById("welcomeRain");
+const welcomeTagline = document.getElementById("welcomeTagline");
+const langEnBtn = document.getElementById("langEnBtn");
+const langZhBtn = document.getElementById("langZhBtn");
 const onboardingOverlay = document.getElementById("onboardingOverlay");
 const onboardingCard = document.getElementById("onboardingCard");
 const onboardingStep = document.getElementById("onboardingStep");
@@ -47,6 +52,7 @@ const onboardingToolbarTarget = document.querySelector('[data-onboarding-target=
 
 const CUSTOM_MATH_STORAGE_KEY = "mdAnything.customMathItems";
 const FIRST_OPEN_STORAGE_KEY = "mdAnything.firstOpenDone";
+const LOCALE_STORAGE_KEY = "mdAnything.locale";
 const DEFAULT_STARTER_CONTENT = [
   "# This is a Markdown helper editor",
   "",
@@ -58,31 +64,179 @@ const DEFAULT_STARTER_CONTENT = [
   "",
   "**Now try for yourself!**",
   "",
+  "$",
 ].join("\n");
 
-const ONBOARDING_STEPS = [
-  {
-    title: "步骤 1 / 3",
-    heading: "右上角开关可控制预览",
-    description: "在这里勾选“开启渲染”即可切换渲染预览。",
-    target: onboardingRenderTarget,
-    nextText: "下一步",
+const I18N = {
+  zh: {
+    welcomeTagline: "Markdown Smart Editor",
+    renderToggle: "开启渲染",
+    lineGuideToggle: "行辅助线",
+    download: "下载",
+    tools: "工具",
+    format: "格式",
+    headingMenu: "标题",
+    h1: "# 一级标题",
+    h2: "## 二级标题",
+    h3: "### 三级标题",
+    h4: "#### 四级标题",
+    bold: "粗体",
+    italic: "斜体",
+    underline: "下划线",
+    strike: "删除线",
+    sup: "上角标",
+    sub: "下角标",
+    codeMath: "代码与数学",
+    inlineCode: "行内代码",
+    codeBlock: "代码块",
+    insertInlineMath: "插入 $...$",
+    insertBlockMath: "插入 $$...$$",
+    links: "链接",
+    linkMenu: "链接",
+    webLink: "网页链接",
+    imageLink: "图片链接",
+    fileLink: "文件链接",
+    clipboardImageLink: "剪贴板图片链接",
+    table: "表格",
+    buildTable: "建表",
+    textToTable: "文本转 MD 表格",
+    placeholder: "开始输入 Markdown...\n\n输入 $$ 会自动进入数学模式，下一次 $$ 结束。\n输入 $ 进入单行数学模式，下一次 $ 结束。\n输入 ``` 会触发语言选择。",
+    mathKeyboardTitle: "数学符号键盘",
+    customMath: "自定义",
+    customMathTitleTip: "新增一个自定义数学按钮",
+    tableDialogTitle: "创建表格",
+    tableRows: "行数",
+    tableCols: "列数",
+    cancel: "取消",
+    insert: "插入",
+    langDialogTitle: "选择代码语言",
+    langDialogLabel: "语言",
+    confirm: "确定",
+    mathTemplateTitle: "数学模板",
+    downloadDialogTitle: "选择下载格式",
+    downloadMd: "下载 .md",
+    downloadTxt: "下载 .txt",
+    downloadPdf: "下载 .pdf",
+    customMathDialogTitle: "自定义数学按钮",
+    customMathLabel: "按钮标题",
+    customMathPreviewExpr: "预览表达式 (KaTeX)",
+    save: "保存",
+    onboarding1Title: "步骤 1 / 3",
+    onboarding1Heading: "右上角开关可控制预览",
+    onboarding1Desc: "在这里勾选“开启渲染”即可切换渲染预览。",
+    onboarding2Title: "步骤 2 / 3",
+    onboarding2Heading: "进入 LaTeX 会自动弹出数学键盘",
+    onboarding2Desc: "当光标处在 $...$ 或 $$...$$ 数学模式时，下方数学键盘会自动展开。",
+    onboarding3Title: "步骤 3 / 3",
+    onboarding3Heading: "左侧工具栏支持按钮与快捷键",
+    onboarding3Desc: "点击左侧按钮可快速插入格式，也可以把鼠标停在按钮上查看快捷键提示。",
+    next: "下一步",
+    startUsing: "开始使用",
+    customLabelDefault: "自定义",
+    expressionEmpty: "表达式不能为空。",
+    expressionOk: "表达式合法，可保存。",
+    expressionInvalid: "表达式无效：{message}",
+    previewFailed: "预览失败",
+    clipboardDenied: "无法读取剪贴板，请先授予剪贴板权限，或先手动粘贴后再使用该功能。",
+    clipboardEmpty: "剪贴板为空，无法生成图片链接。",
+    tableColumn: "列",
+    tableCell: "内容",
+    linkTextDefault: "链接文本",
+    imageTextDefault: "图片",
+    convertTableFailed: "未识别到可转化的文本结构。请确认列之间有至少两个空格，并且至少有两行。",
+    matrixTemplate: "矩阵模板",
+    determinantTemplate: "行列式模板",
+    chooseSize: "先选维度",
+    fillValues: "填值",
+    rows: "行数 (1-6)",
+    cols: "列数 (1-6)",
+    templateSuffix: "模板",
   },
-  {
-    title: "步骤 2 / 3",
-    heading: "进入 LaTeX 会自动弹出数学键盘",
-    description: "当光标处在 $...$ 或 $$...$$ 数学模式时，下方数学键盘会自动展开。",
-    target: mathKeyboard,
-    nextText: "下一步",
+  en: {
+    welcomeTagline: "Markdown Helper Editor",
+    renderToggle: "Render Preview",
+    lineGuideToggle: "Line Guides",
+    download: "Download",
+    tools: "Tools",
+    format: "Formatting",
+    headingMenu: "Headings",
+    h1: "# Heading 1",
+    h2: "## Heading 2",
+    h3: "### Heading 3",
+    h4: "#### Heading 4",
+    bold: "Bold",
+    italic: "Italic",
+    underline: "Underline",
+    strike: "Strikethrough",
+    sup: "Superscript",
+    sub: "Subscript",
+    codeMath: "Code & Math",
+    inlineCode: "Inline Code",
+    codeBlock: "Code Block",
+    insertInlineMath: "Insert $...$",
+    insertBlockMath: "Insert $$...$$",
+    links: "Links",
+    linkMenu: "Links",
+    webLink: "Web Link",
+    imageLink: "Image Link",
+    fileLink: "File Link",
+    clipboardImageLink: "Clipboard Image Link",
+    table: "Table",
+    buildTable: "Build Table",
+    textToTable: "Text to MD Table",
+    placeholder: "Start typing Markdown...\n\nTyping $$ enters block math mode and the next $$ closes it.\nTyping $ enters inline math mode and the next $ closes it.\nTyping ``` opens language picker.",
+    mathKeyboardTitle: "Math Symbol Keyboard",
+    customMath: "Custom",
+    customMathTitleTip: "Add a custom math button",
+    tableDialogTitle: "Create Table",
+    tableRows: "Rows",
+    tableCols: "Columns",
+    cancel: "Cancel",
+    insert: "Insert",
+    langDialogTitle: "Select Code Language",
+    langDialogLabel: "Language",
+    confirm: "Confirm",
+    mathTemplateTitle: "Math Template",
+    downloadDialogTitle: "Choose Download Format",
+    downloadMd: "Download .md",
+    downloadTxt: "Download .txt",
+    downloadPdf: "Download .pdf",
+    customMathDialogTitle: "Custom Math Button",
+    customMathLabel: "Button Label",
+    customMathPreviewExpr: "Preview Expression (KaTeX)",
+    save: "Save",
+    onboarding1Title: "Step 1 / 3",
+    onboarding1Heading: "Use the top-right switch for preview",
+    onboarding1Desc: "Check Render Preview here to switch into rendered mode.",
+    onboarding2Title: "Step 2 / 3",
+    onboarding2Heading: "Math keyboard opens automatically in LaTeX mode",
+    onboarding2Desc: "When your cursor is inside $...$ or $$...$$, the math keyboard at the bottom opens automatically.",
+    onboarding3Title: "Step 3 / 3",
+    onboarding3Heading: "Toolbar supports buttons and shortcuts",
+    onboarding3Desc: "Click tools on the left to insert quickly, and hover over buttons to see shortcuts.",
+    next: "Next",
+    startUsing: "Start Using",
+    customLabelDefault: "Custom",
+    expressionEmpty: "Expression cannot be empty.",
+    expressionOk: "Expression is valid and ready to save.",
+    expressionInvalid: "Invalid expression: {message}",
+    previewFailed: "Preview failed",
+    clipboardDenied: "Clipboard access failed. Please grant permission, or paste manually first.",
+    clipboardEmpty: "Clipboard is empty. Unable to generate an image link.",
+    tableColumn: "Col",
+    tableCell: "Cell",
+    linkTextDefault: "link text",
+    imageTextDefault: "image",
+    convertTableFailed: "No convertible table structure was detected. Make sure columns are separated by at least two spaces and that you have at least two rows.",
+    matrixTemplate: "Matrix Template",
+    determinantTemplate: "Determinant Template",
+    chooseSize: "Choose size first",
+    fillValues: "Fill values",
+    rows: "Rows (1-6)",
+    cols: "Columns (1-6)",
+    templateSuffix: "Template",
   },
-  {
-    title: "步骤 3 / 3",
-    heading: "左侧工具栏支持按钮与快捷键",
-    description: "点击左侧按钮可快速插入格式，也可以把鼠标停在按钮上查看快捷键提示。",
-    target: onboardingToolbarTarget,
-    nextText: "开始使用",
-  },
-];
+};
 
 let lastValue = "";
 let pendingCodeTrigger = null;
@@ -92,11 +246,193 @@ let lastMathInput = null;
 let customMathItems = [];
 let onboardingIndex = -1;
 let forceMathKeyboardOpen = false;
+let currentLanguage = window.localStorage.getItem(LOCALE_STORAGE_KEY) === "en" ? "en" : "zh";
+const welcomeRainState = {
+  initialized: false,
+  running: false,
+  rafId: 0,
+  lastTs: null,
+  canvasW: 0,
+  canvasH: 0,
+  particles: [],
+  logo: null,
+  logoReady: false,
+  dpr: 1,
+  ctx: null,
+};
+
+function t(key, vars = {}) {
+  const pack = I18N[currentLanguage] || I18N.zh;
+  const fallback = I18N.zh[key] || key;
+  const template = pack[key] || fallback;
+  return template.replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? `{${k}}`));
+}
+
+function getOnboardingSteps() {
+  return [
+    {
+      title: t("onboarding1Title"),
+      heading: t("onboarding1Heading"),
+      description: t("onboarding1Desc"),
+      target: onboardingRenderTarget,
+      nextText: t("next"),
+    },
+    {
+      title: t("onboarding2Title"),
+      heading: t("onboarding2Heading"),
+      description: t("onboarding2Desc"),
+      target: mathKeyboard,
+      nextText: t("next"),
+    },
+    {
+      title: t("onboarding3Title"),
+      heading: t("onboarding3Heading"),
+      description: t("onboarding3Desc"),
+      target: onboardingToolbarTarget,
+      nextText: t("startUsing"),
+    },
+  ];
+}
 
 function syncOverlayScroll() {
   const top = isRenderEnabled ? renderLayer.scrollTop : editor.scrollTop;
   lineNumbers.scrollTop = top;
   guideLayer.scrollTop = top;
+}
+
+function resetRainParticle(particle, width, height, fromTop = false) {
+  const size = 14 + Math.random() * 50;
+  particle.size = size;
+  particle.x = Math.random() * (width + size) - size * 0.5;
+  particle.y = fromTop ? -size - Math.random() * height * 0.5 : Math.random() * (height + size) - size;
+  particle.speed = 30 + size * 1.1 + Math.random() * 30;
+  particle.drift = (Math.random() - 0.5) * 6;
+  particle.phase = Math.random() * Math.PI * 2;
+  particle.freq = 0.35 + Math.random() * 0.75;
+  particle.baseAlpha = Math.min(0.24, 0.08 + size / 320);
+}
+
+function resizeWelcomeRain() {
+  if (!welcomeRain) return;
+
+  const rect = welcomeRain.getBoundingClientRect();
+  const width = Math.max(1, Math.floor(rect.width));
+  const height = Math.max(1, Math.floor(rect.height));
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+
+  welcomeRainState.canvasW = width;
+  welcomeRainState.canvasH = height;
+  welcomeRainState.dpr = dpr;
+
+  welcomeRain.width = Math.floor(width * dpr);
+  welcomeRain.height = Math.floor(height * dpr);
+
+  const targetCount = Math.max(34, Math.min(96, Math.floor((width * height) / 21000)));
+  const currentCount = welcomeRainState.particles.length;
+
+  if (currentCount < targetCount) {
+    for (let i = currentCount; i < targetCount; i += 1) {
+      const particle = {};
+      resetRainParticle(particle, width, height, false);
+      welcomeRainState.particles.push(particle);
+    }
+  } else if (currentCount > targetCount) {
+    welcomeRainState.particles.length = targetCount;
+  }
+
+  for (let i = 0; i < welcomeRainState.particles.length; i += 1) {
+    const p = welcomeRainState.particles[i];
+    if (p.x > width + p.size || p.y > height + p.size) {
+      resetRainParticle(p, width, height, true);
+    }
+  }
+}
+
+function drawWelcomeRain(ts) {
+  if (!welcomeRainState.running || !welcomeRain || !welcomeRainState.logoReady) {
+    return;
+  }
+
+  welcomeRainState.rafId = requestAnimationFrame(drawWelcomeRain);
+
+  if (welcomeRainState.lastTs === null) {
+    welcomeRainState.lastTs = ts;
+    return;
+  }
+
+  const deltaMs = ts - welcomeRainState.lastTs;
+  if (deltaMs < 28) {
+    return;
+  }
+  welcomeRainState.lastTs = ts;
+
+  const dt = Math.min(deltaMs, 64) / 1000;
+  const ctx = welcomeRainState.ctx;
+  if (!ctx) return;
+
+  const width = welcomeRainState.canvasW;
+  const height = welcomeRainState.canvasH;
+  const dpr = welcomeRainState.dpr;
+  const time = ts / 1000;
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const particles = welcomeRainState.particles;
+  for (let i = 0; i < particles.length; i += 1) {
+    const p = particles[i];
+    p.y += p.speed * dt;
+    p.x += p.drift * dt;
+
+    if (p.y > height + p.size + 8) {
+      resetRainParticle(p, width, height, true);
+      continue;
+    }
+
+    const wave = 0.62 + 0.38 * Math.sin(time * p.freq + p.phase);
+    const alpha = p.baseAlpha * wave;
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(welcomeRainState.logo, p.x, p.y, p.size, p.size);
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function startWelcomeRain() {
+  if (!welcomeRain || !welcomeRainState.logoReady) return;
+  if (welcomeRainState.running) return;
+
+  resizeWelcomeRain();
+  welcomeRainState.running = true;
+  welcomeRainState.lastTs = null;
+  welcomeRainState.rafId = requestAnimationFrame(drawWelcomeRain);
+}
+
+function stopWelcomeRain() {
+  welcomeRainState.running = false;
+  welcomeRainState.lastTs = null;
+  if (welcomeRainState.rafId) {
+    cancelAnimationFrame(welcomeRainState.rafId);
+    welcomeRainState.rafId = 0;
+  }
+}
+
+function initWelcomeRain() {
+  if (!welcomeRain || welcomeRainState.initialized) return;
+  welcomeRainState.initialized = true;
+  welcomeRainState.ctx = welcomeRain.getContext("2d", { alpha: true });
+
+  const logo = new Image();
+  logo.decoding = "async";
+  logo.src = "favicon.ico";
+  logo.addEventListener("load", () => {
+    welcomeRainState.logo = logo;
+    welcomeRainState.logoReady = true;
+    resizeWelcomeRain();
+    if (document.body.classList.contains("welcome-open")) {
+      startWelcomeRain();
+    }
+  });
 }
 
 function setMathKeyboardOpen(open) {
@@ -120,6 +456,120 @@ function setMathKeyboardOpen(open) {
   requestAnimationFrame(() => {
     syncOverlayScroll();
   });
+}
+
+function setText(selector, value) {
+  const el = document.querySelector(selector);
+  if (el) el.textContent = value;
+}
+
+function setLeadingLabelText(label, value) {
+  if (!label) return;
+  if (label.firstChild && label.firstChild.nodeType === Node.TEXT_NODE) {
+    label.firstChild.nodeValue = `${value} `;
+    return;
+  }
+  label.insertBefore(document.createTextNode(`${value} `), label.firstChild || null);
+}
+
+function applyLocaleToUI() {
+  document.documentElement.lang = currentLanguage === "en" ? "en" : "zh-CN";
+
+  if (welcomeTagline) welcomeTagline.textContent = t("welcomeTagline");
+
+  setText('label[for="renderToggle"] span', t("renderToggle"));
+  setText('label[for="lineGuideToggle"] span', t("lineGuideToggle"));
+  setText("#downloadBtn", t("download"));
+
+  const toolbarPanel = document.querySelector(".toolbar-panel");
+  if (toolbarPanel) {
+    const toolbarTitle = toolbarPanel.querySelector("h2");
+    if (toolbarTitle) toolbarTitle.textContent = t("tools");
+
+    const groupTitles = toolbarPanel.querySelectorAll(".tool-group h3");
+    if (groupTitles[0]) groupTitles[0].textContent = t("format");
+    if (groupTitles[1]) groupTitles[1].textContent = t("codeMath");
+    if (groupTitles[2]) groupTitles[2].textContent = t("links");
+    if (groupTitles[3]) groupTitles[3].textContent = t("table");
+  }
+
+  const headingMainButtons = document.querySelectorAll(".heading-main");
+  if (headingMainButtons[0]) headingMainButtons[0].textContent = t("headingMenu");
+  if (headingMainButtons[1]) headingMainButtons[1].textContent = t("linkMenu");
+
+  setText('[data-action="heading-1"]', t("h1"));
+  setText('[data-action="heading-2"]', t("h2"));
+  setText('[data-action="heading-3"]', t("h3"));
+  setText('[data-action="heading-4"]', t("h4"));
+  setText('[data-action="bold"]', t("bold"));
+  setText('[data-action="italic"]', t("italic"));
+  setText('[data-action="underline"]', t("underline"));
+  setText('[data-action="strike"]', t("strike"));
+  setText('[data-action="sup"]', t("sup"));
+  setText('[data-action="sub"]', t("sub"));
+  setText('[data-action="inline-code"]', t("inlineCode"));
+  setText('[data-action="code-block"]', t("codeBlock"));
+  setText('[data-action="insert-inline-math"]', t("insertInlineMath"));
+  setText('[data-action="insert-block-math"]', t("insertBlockMath"));
+  setText('[data-action="insert-web-link"]', t("webLink"));
+  setText('[data-action="insert-image-link"]', t("imageLink"));
+  setText('[data-action="insert-file-link"]', t("fileLink"));
+  setText('[data-action="insert-image-link-from-clipboard"]', t("clipboardImageLink"));
+
+  setText("#openTableBuilder", t("buildTable"));
+  setText("#convertToTable", t("textToTable"));
+
+  editor.placeholder = t("placeholder");
+
+  setText(".math-title", t("mathKeyboardTitle"));
+  customMathBtn.textContent = t("customMath");
+  customMathBtn.title = t("customMathTitleTip");
+
+  const tableDialogTitle = tableDialog.querySelector("h3");
+  if (tableDialogTitle) tableDialogTitle.textContent = t("tableDialogTitle");
+  const tableRowsLabel = tableDialog.querySelector('label[for="tableRows"]') || tableRows?.closest("label");
+  const tableColsLabel = tableDialog.querySelector('label[for="tableCols"]') || tableCols?.closest("label");
+  setLeadingLabelText(tableRowsLabel, t("tableRows"));
+  setLeadingLabelText(tableColsLabel, t("tableCols"));
+  tableCancel.textContent = t("cancel");
+  const tableSubmit = tableForm.querySelector('button[type="submit"]');
+  if (tableSubmit) tableSubmit.textContent = t("insert");
+
+  const languageDialogTitle = languageDialog.querySelector("h3");
+  if (languageDialogTitle) languageDialogTitle.textContent = t("langDialogTitle");
+  const languageLabel = languageDialog.querySelector("label");
+  setLeadingLabelText(languageLabel, t("langDialogLabel"));
+  languageCancel.textContent = t("cancel");
+  const languageSubmit = languageForm.querySelector('button[type="submit"]');
+  if (languageSubmit) languageSubmit.textContent = t("confirm");
+
+  if (!pendingMathTemplate) {
+    mathTemplateTitle.textContent = t("mathTemplateTitle");
+  }
+  mathTemplateCancel.textContent = t("cancel");
+  const mathTemplateSubmit = mathTemplateForm.querySelector('button[type="submit"]');
+  if (mathTemplateSubmit) mathTemplateSubmit.textContent = t("insert");
+
+  const downloadTitle = downloadDialog.querySelector("h3");
+  if (downloadTitle) downloadTitle.textContent = t("downloadDialogTitle");
+  downloadMdBtn.textContent = t("downloadMd");
+  downloadTxtBtn.textContent = t("downloadTxt");
+  downloadPdfBtn.textContent = t("downloadPdf");
+  downloadCancel.textContent = t("cancel");
+
+  const customTitle = customMathDialog.querySelector("h3");
+  if (customTitle) customTitle.textContent = t("customMathDialogTitle");
+  const customLabels = customMathDialog.querySelectorAll("label");
+  setLeadingLabelText(customLabels[0], t("customMathLabel"));
+  setLeadingLabelText(customLabels[1], t("customMathPreviewExpr"));
+  customMathCancel.textContent = t("cancel");
+  customMathSave.textContent = t("save");
+}
+
+function setLanguage(nextLanguage) {
+  currentLanguage = nextLanguage === "en" ? "en" : "zh";
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, currentLanguage);
+  applyLocaleToUI();
 }
 
 const md = window
@@ -319,6 +769,54 @@ const mathKeys = [
   { display: "\\Omega", label: "Ω", snippet: "\\Omega " },
 ];
 
+const MATH_LABEL_EN = {
+  分数: "Fraction",
+  分子: "Numerator",
+  分母: "Denominator",
+  根号: "Square Root",
+  被开方项: "Radicand",
+  "n次根": "Nth Root",
+  次数: "Index",
+  "求和 Σ": "Summation Σ",
+  下限: "Lower bound",
+  上限: "Upper bound",
+  "连乘 Π": "Product Π",
+  "积分 ∫": "Integral ∫",
+  积分域: "Region",
+  "二重积分 ∬": "Double Integral ∬",
+  "三重积分 ∭": "Triple Integral ∭",
+  "曲线积分 ∮": "Contour Integral ∮",
+  路径: "Path",
+  "极限 lim": "Limit lim",
+  趋近条件: "Condition",
+  导数: "Derivative",
+  函数: "Function",
+  变量: "Variable",
+  偏导: "Partial Derivative",
+  组合数: "Binomial",
+  "总数 n": "Total n",
+  "选取 k": "Choose k",
+  矩阵: "Matrix",
+  行列式: "Determinant",
+};
+
+function localizeMathItems() {
+  if (currentLanguage !== "en") {
+    return mathKeys;
+  }
+
+  return mathKeys.map((item) => ({
+    ...item,
+    label: MATH_LABEL_EN[item.label] || item.label,
+    fields: item.fields
+      ? item.fields.map((field) => ({
+          ...field,
+          label: MATH_LABEL_EN[field.label] || field.label,
+        }))
+      : item.fields,
+  }));
+}
+
 function insertText(value) {
   const start = editor.selectionStart;
   const end = editor.selectionEnd;
@@ -358,7 +856,7 @@ function insertMathSnippet(value) {
 }
 
 function updateCustomMathButtonText() {
-  customMathBtn.textContent = "自定义";
+  customMathBtn.textContent = t("customMath");
 }
 
 function saveCustomMathItems() {
@@ -378,7 +876,7 @@ function loadCustomMathBinding() {
         customMathItems = parsed
           .filter((item) => item && typeof item === "object")
           .map((item) => ({
-            label: String(item.label || "自定义"),
+            label: String(item.label || t("customLabelDefault")),
             display: String(item.display || "").trim(),
             snippet: String(item.display || "").trim(),
           }))
@@ -386,7 +884,7 @@ function loadCustomMathBinding() {
       } else if (parsed && typeof parsed === "object" && parsed.display) {
         // Compatibility migration from old single-binding data.
         customMathItems = [{
-          label: String(parsed.label || "自定义"),
+          label: String(parsed.label || t("customLabelDefault")),
           display: String(parsed.display).trim(),
           snippet: String(parsed.display).trim(),
         }].filter((item) => item.display.length > 0);
@@ -402,14 +900,14 @@ function loadCustomMathBinding() {
 function validateCustomMathLatex(latex) {
   const value = (latex || "").trim();
   if (!value.length) {
-    return { valid: false, html: "", message: "表达式不能为空。" };
+    return { valid: false, html: "", message: t("expressionEmpty") };
   }
 
   try {
     const html = window.katex.renderToString(value, { throwOnError: true, displayMode: false });
-    return { valid: true, html, message: "表达式合法，可保存。" };
+    return { valid: true, html, message: t("expressionOk") };
   } catch (err) {
-    return { valid: false, html: "", message: `表达式无效：${err.message}` };
+    return { valid: false, html: "", message: t("expressionInvalid", { message: err.message }) };
   }
 }
 
@@ -424,7 +922,7 @@ function updateCustomMathPreview() {
     customMathStatus.classList.remove("err");
     customMathStatus.classList.add("ok");
   } else {
-    customMathPreview.textContent = "预览失败";
+    customMathPreview.textContent = t("previewFailed");
     customMathStatus.textContent = result.message;
     customMathStatus.classList.remove("ok");
     customMathStatus.classList.add("err");
@@ -434,7 +932,7 @@ function updateCustomMathPreview() {
 }
 
 function openCustomMathDialog() {
-  customMathLabelInput.value = "自定义";
+  customMathLabelInput.value = t("customLabelDefault");
   customMathDisplayInput.value = "\\Omega";
   updateCustomMathPreview();
   customMathDialog.showModal();
@@ -446,7 +944,7 @@ function insertMarkdownLink(url, isImage = false) {
   const end = editor.selectionEnd;
   const prev = editor.value;
   const selected = prev.slice(start, end);
-  const label = selected.length ? selected : (isImage ? "image" : "link text");
+  const label = selected.length ? selected : (isImage ? t("imageTextDefault") : t("linkTextDefault"));
   const prefix = isImage ? "!" : "";
   const link = `${prefix}[${label}](${url})`;
 
@@ -463,13 +961,13 @@ async function insertImageLinkFromClipboard() {
   try {
     clipText = (await navigator.clipboard.readText()) || "";
   } catch (_) {
-    window.alert("无法读取剪贴板，请先授予剪贴板权限，或先手动粘贴后再使用该功能。");
+    window.alert(t("clipboardDenied"));
     return;
   }
 
   const content = clipText.trim();
   if (!content) {
-    window.alert("剪贴板为空，无法生成图片链接。");
+    window.alert(t("clipboardEmpty"));
     return;
   }
 
@@ -527,16 +1025,16 @@ function initMathKeyboard() {
     mathGrid.appendChild(btn);
   };
 
-  mathKeys.forEach((item) => appendMathKey(item));
+  localizeMathItems().forEach((item) => appendMathKey(item));
   customMathItems.forEach((item) => appendMathKey(item));
 }
 
 function generateMdTable(rows, cols) {
   const safeRows = Math.max(1, Number(rows));
   const safeCols = Math.max(1, Number(cols));
-  const header = Array.from({ length: safeCols }, (_, i) => ` 列${i + 1} `).join("|");
+  const header = Array.from({ length: safeCols }, (_, i) => ` ${t("tableColumn")}${i + 1} `).join("|");
   const sep = Array.from({ length: safeCols }, () => " --- ").join("|");
-  const body = Array.from({ length: safeRows - 1 }, () => `|${Array.from({ length: safeCols }, () => " 内容 ").join("|")}|`).join("\n");
+  const body = Array.from({ length: safeRows - 1 }, () => `|${Array.from({ length: safeCols }, () => ` ${t("tableCell")} `).join("|")}|`).join("\n");
   return `|${header}|\n|${sep}|${body ? `\n${body}` : ""}\n`;
 }
 
@@ -968,12 +1466,10 @@ function createGridTemplateFields(rows, cols, prefix) {
 
 const sizedTemplateMeta = {
   matrix: {
-    title: "矩阵模板",
     env: "pmatrix",
     cellPrefix: "a",
   },
   determinant: {
-    title: "行列式模板",
     env: "vmatrix",
     cellPrefix: "d",
   },
@@ -996,11 +1492,13 @@ function openSizedTemplateSizeStep(type) {
   const meta = sizedTemplateMeta[type];
   if (!meta) return;
 
+  const title = type === "determinant" ? t("determinantTemplate") : t("matrixTemplate");
+
   pendingMathTemplate = { type, stage: "size" };
-  mathTemplateTitle.textContent = `${meta.title} - 先选维度`;
+  mathTemplateTitle.textContent = `${title} - ${t("chooseSize")}`;
   createTemplateFields([
-    { key: "rows", label: "行数 (1-6)", defaultValue: "2" },
-    { key: "cols", label: "列数 (1-6)", defaultValue: "2" },
+    { key: "rows", label: t("rows"), defaultValue: "2" },
+    { key: "cols", label: t("cols"), defaultValue: "2" },
   ]);
 }
 
@@ -1008,8 +1506,10 @@ function openSizedTemplateValueStep(type, rows, cols) {
   const meta = sizedTemplateMeta[type];
   if (!meta) return;
 
+  const title = type === "determinant" ? t("determinantTemplate") : t("matrixTemplate");
+
   pendingMathTemplate = { type, stage: "values", rows, cols };
-  mathTemplateTitle.textContent = `${meta.title} - ${rows}x${cols} 填值`;
+  mathTemplateTitle.textContent = `${title} - ${rows}x${cols} ${t("fillValues")}`;
   createGridTemplateFields(rows, cols, meta.cellPrefix);
 }
 
@@ -1018,7 +1518,7 @@ function openMathTemplateDialog(item) {
     openSizedTemplateSizeStep(item.type);
   } else {
     pendingMathTemplate = item;
-    mathTemplateTitle.textContent = `${item.label} 模板`;
+    mathTemplateTitle.textContent = `${item.label} ${t("templateSuffix")}`;
     createTemplateFields(item.fields || []);
   }
 
@@ -1147,10 +1647,62 @@ function clearOnboardingFocus() {
   });
 }
 
+function resetOnboardingCardPosition() {
+  if (!onboardingCard) return;
+  onboardingCard.style.left = "";
+  onboardingCard.style.top = "";
+  onboardingCard.style.transform = "";
+}
+
+function positionFirstOnboardingCard() {
+  if (!onboardingCard || !onboardingRenderTarget) return;
+
+  const margin = 12;
+  const gap = 14;
+  const target = onboardingRenderTarget.getBoundingClientRect();
+  const card = onboardingCard.getBoundingClientRect();
+  const cardW = Math.max(320, card.width || 460);
+  const cardH = Math.max(180, card.height || 240);
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+
+  let left = target.right - cardW;
+  left = Math.max(margin, Math.min(left, viewportW - cardW - margin));
+
+  let top = target.bottom + gap;
+  if (top + cardH > viewportH - margin) {
+    top = target.top - cardH - gap;
+  }
+  top = Math.max(margin, Math.min(top, viewportH - cardH - margin));
+
+  // If still overlapping target, prefer placing card to target's left/right side.
+  const overlapsTarget = !(
+    left + cardW < target.left
+    || left > target.right
+    || top + cardH < target.top
+    || top > target.bottom
+  );
+
+  if (overlapsTarget) {
+    const leftSide = target.left - cardW - gap;
+    const rightSide = target.right + gap;
+    if (leftSide >= margin) {
+      left = leftSide;
+    } else if (rightSide + cardW <= viewportW - margin) {
+      left = rightSide;
+    }
+  }
+
+  onboardingCard.style.left = `${Math.round(left)}px`;
+  onboardingCard.style.top = `${Math.round(top)}px`;
+  onboardingCard.style.transform = "none";
+}
+
 function finishOnboarding() {
   onboardingIndex = -1;
   forceMathKeyboardOpen = false;
   clearOnboardingFocus();
+  resetOnboardingCardPosition();
   document.body.classList.remove("onboarding-open");
   if (onboardingCard) onboardingCard.setAttribute("aria-hidden", "true");
   if (onboardingOverlay) onboardingOverlay.setAttribute("aria-hidden", "true");
@@ -1158,13 +1710,15 @@ function finishOnboarding() {
 }
 
 function applyOnboardingStep(index) {
-  if (index < 0 || index >= ONBOARDING_STEPS.length) {
+  const steps = getOnboardingSteps();
+
+  if (index < 0 || index >= steps.length) {
     finishOnboarding();
     return;
   }
 
   onboardingIndex = index;
-  const step = ONBOARDING_STEPS[index];
+  const step = steps[index];
 
   clearOnboardingFocus();
   if (step.target) {
@@ -1183,6 +1737,14 @@ function applyOnboardingStep(index) {
   onboardingTitle.textContent = step.heading;
   onboardingDesc.textContent = step.description;
   onboardingNextBtn.textContent = step.nextText;
+
+  if (onboardingIndex === 0) {
+    requestAnimationFrame(() => {
+      positionFirstOnboardingCard();
+    });
+  } else {
+    resetOnboardingCardPosition();
+  }
 }
 
 function startOnboarding() {
@@ -1196,10 +1758,28 @@ function startOnboarding() {
   applyOnboardingStep(0);
 }
 
-function initializeDefaultState() {
-  const firstOpen = !window.localStorage.getItem(FIRST_OPEN_STORAGE_KEY);
+function isReloadNavigation() {
+  const navigationEntry = performance.getEntriesByType("navigation")[0];
+  return !!(navigationEntry && navigationEntry.type === "reload");
+}
 
-  if (firstOpen) {
+function setWelcomeScreenVisible(visible) {
+  document.body.classList.toggle("welcome-open", visible);
+  if (welcomeScreen) {
+    welcomeScreen.setAttribute("aria-hidden", visible ? "false" : "true");
+  }
+
+  if (visible) {
+    startWelcomeRain();
+  } else {
+    stopWelcomeRain();
+  }
+}
+
+function startWorkspace({ firstOpen, showOnboarding }) {
+  const shouldApplyStarter = firstOpen || editor.value.trim().length === 0;
+
+  if (shouldApplyStarter) {
     editor.value = DEFAULT_STARTER_CONTENT;
   }
 
@@ -1213,9 +1793,47 @@ function initializeDefaultState() {
   setRenderMode(true);
   refreshAll();
 
-  if (firstOpen) {
-    window.localStorage.setItem(FIRST_OPEN_STORAGE_KEY, "1");
+  if (showOnboarding) {
     startOnboarding();
+  }
+}
+
+function initializeDefaultState() {
+  const firstOpen = !window.localStorage.getItem(FIRST_OPEN_STORAGE_KEY);
+  const shouldShowWelcome = firstOpen || isReloadNavigation();
+
+  const savedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+  setLanguage(savedLocale === "en" ? "en" : "zh");
+  initMathKeyboard();
+
+  if (!shouldShowWelcome) {
+    startWorkspace({ firstOpen: false, showOnboarding: false });
+    return;
+  }
+
+  setWelcomeScreenVisible(true);
+
+  const onChooseLanguage = (locale) => {
+    setLanguage(locale);
+    initMathKeyboard();
+    setWelcomeScreenVisible(false);
+
+    if (firstOpen) {
+      window.localStorage.setItem(FIRST_OPEN_STORAGE_KEY, "1");
+    }
+
+    startWorkspace({
+      firstOpen,
+      showOnboarding: true,
+    });
+  };
+
+  if (langEnBtn) {
+    langEnBtn.onclick = () => onChooseLanguage("en");
+  }
+
+  if (langZhBtn) {
+    langZhBtn.onclick = () => onChooseLanguage("zh");
   }
 }
 
@@ -1377,7 +1995,7 @@ document.getElementById("convertToTable").addEventListener("click", () => {
   const converted = convertTextBlockToTable(target);
 
   if (!converted) {
-    window.alert("未识别到可转化的文本结构。请确认列之间有至少两个空格，并且至少有两行。");
+    window.alert(t("convertTableFailed"));
     return;
   }
 
@@ -1526,10 +2144,27 @@ renderToggle.addEventListener("change", () => {
 });
 
 window.addEventListener("resize", () => {
+  resizeWelcomeRain();
+
+  if (document.body.classList.contains("onboarding-open") && onboardingIndex === 0) {
+    positionFirstOnboardingCard();
+  }
+
   if (mathKeyboard.classList.contains("open")) {
     setMathKeyboardOpen(true);
   }
   refreshAll();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopWelcomeRain();
+    return;
+  }
+
+  if (document.body.classList.contains("welcome-open")) {
+    startWelcomeRain();
+  }
 });
 
 if (onboardingNextBtn) {
@@ -1546,5 +2181,5 @@ if (onboardingOverlay) {
 
 loadCustomMathBinding();
 bindToolbarActions();
-initMathKeyboard();
+initWelcomeRain();
 initializeDefaultState();

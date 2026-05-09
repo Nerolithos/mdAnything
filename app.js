@@ -531,6 +531,61 @@ function getLineColumnFromClientX(lineIdx, clientX) {
   return low;
 }
 
+function getLineColumnFromClientPoint(lineIdx, clientX, clientY) {
+  const lines = editor.value.split("\n");
+  const safeLine = Math.max(0, Math.min(lineIdx, lines.length - 1));
+  const lineText = lines[safeLine] || "";
+  if (!lineText.length) return 0;
+
+  const row = renderLayer.querySelector(`.render-line[data-line="${safeLine + 1}"]`);
+  if (!row) return getLineColumnFromClientX(safeLine, clientX);
+
+  // Use the browser's own caret-hit-testing on the rendered DOM node.
+  // This correctly resolves which visual sub-line the pointer is on even when
+  // the rendered HTML wraps at different positions than the raw Markdown source.
+  let hitNode = null;
+  let hitOffset = 0;
+
+  if (typeof document.caretPositionFromPoint === "function") {
+    // Firefox
+    const pos = document.caretPositionFromPoint(clientX, clientY);
+    if (pos && row.contains(pos.offsetNode)) {
+      hitNode = pos.offsetNode;
+      hitOffset = pos.offset;
+    }
+  } else if (typeof document.caretRangeFromPoint === "function") {
+    // Chrome / Safari
+    const range = document.caretRangeFromPoint(clientX, clientY);
+    if (range && row.contains(range.startContainer)) {
+      hitNode = range.startContainer;
+      hitOffset = range.startOffset;
+    }
+  }
+
+  if (!hitNode) return getLineColumnFromClientX(safeLine, clientX);
+
+  // Count rendered-text characters up to the hit position by walking text nodes.
+  let renderedOffset = 0;
+  const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, null);
+  let current;
+  while ((current = walker.nextNode())) {
+    if (current === hitNode) {
+      renderedOffset += hitOffset;
+      break;
+    }
+    renderedOffset += current.textContent.length;
+  }
+
+  // Map the rendered-text offset proportionally to the source-text offset.
+  // For un-formatted / suspended lines the rendered text equals the source text
+  // so the ratio is 1:1 and the result is exact.  For lines with bold/code the
+  // mapping is approximate but always lands on the correct visual sub-line.
+  const renderedLen = (row.textContent || "").length;
+  if (renderedLen === 0) return 0;
+  const ratio = Math.min(1, renderedOffset / renderedLen);
+  return Math.max(0, Math.min(lineText.length, Math.round(ratio * lineText.length)));
+}
+
 function setCursorToLineColumnByClientX(lineIdx, clientX) {
   const lines = editor.value.split("\n");
   const safeLine = Math.max(0, Math.min(lineIdx, lines.length - 1));
@@ -1041,6 +1096,8 @@ function syncSuspendRangeFromCursor() {
   if (isRenderDragging) return; // Don't disturb rendering during drag selection
   if (document.activeElement !== editor) return;
   suspendRangeForCursor(editor.value.split("\n"));
+  // Re-apply visual selection after suspend updates row DOM.
+  syncRenderSelectionHighlightFromEditor();
   // Keep cursor visually pinned to the active rendered line while navigating.
   scheduleCaretRealignChecks(1400);
   updateRenderCaret();
@@ -2598,6 +2655,7 @@ function setRenderMode(enabled) {
   resetPreviewCaretOffset();
   if (!enabled) {
     hideRenderCaret();
+    clearRenderDragHighlight();
   }
   if (!enabled) {
     stopCaretRealignChecks();
@@ -2606,6 +2664,7 @@ function setRenderMode(enabled) {
   if (enabled) {
     renderLayer.scrollTop = editor.scrollTop;
     updateRenderCaret();
+    syncRenderSelectionHighlightFromEditor();
   } else {
     clearAllRestoreTimers();
     activeSuspendRange = null;
@@ -3239,6 +3298,7 @@ editor.addEventListener("select", () => {
 
 document.addEventListener("selectionchange", () => {
   syncSuspendRangeFromCursor();
+  syncRenderSelectionHighlightFromEditor();
 });
 
 editor.addEventListener("blur", (e) => {
@@ -3352,8 +3412,64 @@ renderLayer.addEventListener("touchcancel", () => {
 // Flag to suppress suspend/restore during drag so rendering stays frozen.
 let isRenderDragging = false;
 let renderDragState = null; // { startOffset }
+let renderDragPointer = null; // { clientX, clientY }
+let renderDragAutoScrollRafId = 0;
 // Suppress the click event immediately following a drag release
 let suppressNextRenderLayerClick = false;
+
+function updateRenderDragSelectionAt(clientX, clientY) {
+  if (!renderDragState || !isRenderEnabled) return;
+
+  const lineIdx = getRenderLineIdxAtY(clientY);
+  if (lineIdx === null) return;
+  const endOffset = getTextareaOffsetAtPoint(lineIdx, clientX, clientY);
+
+  // Skip if no change (avoids unnecessary DOM thrash)
+  if (endOffset === renderDragState.lastEndOffset) return;
+  renderDragState.lastEndOffset = endOffset;
+
+  const selStart = Math.min(renderDragState.startOffset, endOffset);
+  const selEnd = Math.max(renderDragState.startOffset, endOffset);
+
+  applyRenderDragHighlight(selStart, selEnd);
+
+  // Update textarea selection directly — isRenderDragging suppresses the
+  // select/syncSuspendRangeFromCursor path so rendering won't flicker.
+  editor.setSelectionRange(selStart, selEnd);
+}
+
+function stopRenderDragAutoScroll() {
+  if (!renderDragAutoScrollRafId) return;
+  window.cancelAnimationFrame(renderDragAutoScrollRafId);
+  renderDragAutoScrollRafId = 0;
+}
+
+function tickRenderDragAutoScroll() {
+  renderDragAutoScrollRafId = 0;
+  if (!isRenderEnabled || !renderDragState || !renderDragPointer) return;
+
+  const rect = renderLayer.getBoundingClientRect();
+  const threshold = 28;
+  let delta = 0;
+
+  if (renderDragPointer.clientY < rect.top + threshold) {
+    delta = -Math.min(18, Math.max(3, (rect.top + threshold - renderDragPointer.clientY) * 0.45));
+  } else if (renderDragPointer.clientY > rect.bottom - threshold) {
+    delta = Math.min(18, Math.max(3, (renderDragPointer.clientY - (rect.bottom - threshold)) * 0.45));
+  }
+
+  if (Math.abs(delta) >= 0.5) {
+    scrollVisibleLayerBy(delta);
+    updateRenderDragSelectionAt(renderDragPointer.clientX, renderDragPointer.clientY);
+  }
+
+  renderDragAutoScrollRafId = window.requestAnimationFrame(tickRenderDragAutoScroll);
+}
+
+function ensureRenderDragAutoScroll() {
+  if (renderDragAutoScrollRafId) return;
+  renderDragAutoScrollRafId = window.requestAnimationFrame(tickRenderDragAutoScroll);
+}
 
 // Find the closest render-line index to a given clientY using bounding-box search.
 // Unlike elementFromPoint, this works even when the pointer is over child nodes
@@ -3385,33 +3501,150 @@ function getRenderLineIdxAtY(clientY) {
   return Math.max(0, lineNum - 1);
 }
 
-function getTextareaOffsetAtPoint(lineIdx, clientX) {
+function getTextareaOffsetAtPoint(lineIdx, clientX, clientY) {
   const lines = editor.value.split("\n");
   const safeLine = Math.max(0, Math.min(lineIdx, lines.length - 1));
   const lineStart = getLineStartOffset(safeLine);
-  const column = getLineColumnFromClientX(safeLine, clientX);
+  const column = getLineColumnFromClientPoint(safeLine, clientX, clientY);
   return lineStart + column;
 }
 
 function clearRenderDragHighlight() {
+  renderLayer.querySelectorAll(".render-selection-overlay").forEach((el) => el.remove());
   renderLayer.querySelectorAll(".render-line.is-drag-selected").forEach((el) => {
     el.classList.remove("is-drag-selected");
   });
 }
 
+function syncRenderSelectionHighlightFromEditor() {
+  if (!isRenderEnabled) {
+    clearRenderDragHighlight();
+    return;
+  }
+
+  const selStart = editor.selectionStart;
+  const selEnd = editor.selectionEnd;
+  if (selStart === selEnd) {
+    clearRenderDragHighlight();
+    return;
+  }
+
+  applyRenderDragHighlight(Math.min(selStart, selEnd), Math.max(selStart, selEnd));
+}
+
 function applyRenderDragHighlight(startOffset, endOffset) {
   clearRenderDragHighlight();
+
   const value = editor.value;
-  const startLine = value.substring(0, startOffset).split("\n").length;
-  const endLine = value.substring(0, endOffset).split("\n").length;
-  const fromLine = Math.min(startLine, endLine);
-  const toLine = Math.max(startLine, endLine);
-  renderLayer.querySelectorAll(".render-line").forEach((el) => {
-    const ln = Number(el.getAttribute("data-line") || "0");
-    if (ln >= fromLine && ln <= toLine) {
-      el.classList.add("is-drag-selected");
+  const lines = value.split("\n");
+  const safeStart = Math.max(0, Math.min(startOffset, value.length));
+  const safeEnd = Math.max(0, Math.min(endOffset, value.length));
+
+  const fromOffset = Math.min(safeStart, safeEnd);
+  const toOffset = Math.max(safeStart, safeEnd);
+
+  const fromLineIdx = getLineIndexAtOffset(lines, fromOffset);
+  const toProbeOffset = Math.max(fromOffset, toOffset - 1);
+  const toLineIdx = getLineIndexAtOffset(lines, toProbeOffset);
+
+  // Collect all text nodes in a rendered row in document order.
+  function getTextNodes(row) {
+    const nodes = [];
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, null);
+    let n;
+    while ((n = walker.nextNode())) nodes.push(n);
+    return nodes;
+  }
+
+  // Given a list of text nodes and a character offset within their concatenated
+  // text, return { node, offset } for use with DOM Range APIs.
+  function resolveRenderedOffset(textNodes, offset) {
+    let remaining = Math.max(0, offset);
+    for (const tn of textNodes) {
+      const len = tn.textContent.length;
+      if (remaining <= len) return { node: tn, offset: remaining };
+      remaining -= len;
     }
-  });
+    const last = textNodes[textNodes.length - 1];
+    return last ? { node: last, offset: last.textContent.length } : null;
+  }
+
+  function appendOverlay(row, left, width, top, height) {
+    const overlay = document.createElement("span");
+    overlay.className = "render-selection-overlay";
+    overlay.style.left = `${Math.max(0, left)}px`;
+    overlay.style.width = `${Math.max(2, width)}px`;
+    overlay.style.top = `${Math.max(0, top + 2)}px`;
+    overlay.style.height = `${Math.max(8, height - 4)}px`;
+    row.appendChild(overlay);
+  }
+
+  for (let lineIdx = fromLineIdx; lineIdx <= toLineIdx; lineIdx += 1) {
+    const row = renderLayer.querySelector(`.render-line[data-line="${lineIdx + 1}"]`);
+    if (!row) continue;
+
+    const lineText = lines[lineIdx] || "";
+    const lineStart = getLineStartOffset(lineIdx);
+    const lineEnd = lineStart + lineText.length;
+
+    const segStart = Math.max(lineStart, fromOffset);
+    const segEnd = Math.min(lineEnd, toOffset);
+    const startCol = Math.max(0, segStart - lineStart);
+    const endCol = Math.max(startCol, segEnd - lineStart);
+
+    if (startCol === endCol && lineText.length > 0) continue;
+
+    const rowRect = row.getBoundingClientRect();
+    const rowWidth = Math.max(1, row.clientWidth);
+
+    try {
+      const textNodes = getTextNodes(row);
+      const renderedLen = textNodes.reduce((s, n) => s + n.textContent.length, 0);
+
+      // Map source columns to rendered text offsets proportionally.
+      // For suspended (raw-text) rows the ratio is 1:1 and the result is exact.
+      const ratio = lineText.length > 0 ? renderedLen / lineText.length : 1;
+      const rStart = Math.round(Math.min(startCol * ratio, renderedLen));
+      const rEnd = Math.round(Math.min(endCol * ratio, renderedLen));
+
+      if (textNodes.length === 0) {
+        // Empty rendered line — full-width overlay at top of row.
+        appendOverlay(row, 0, rowWidth, 0, 22);
+        continue;
+      }
+
+      const startNO = resolveRenderedOffset(textNodes, rStart);
+      const endNO = resolveRenderedOffset(textNodes, rEnd);
+      if (!startNO || !endNO) {
+        appendOverlay(row, 0, rowWidth, 0, row.clientHeight || 22);
+        continue;
+      }
+
+      const range = document.createRange();
+      range.setStart(startNO.node, startNO.offset);
+      range.setEnd(endNO.node, endNO.offset);
+
+      // getClientRects returns one rect per visual sub-line — perfect for wrapping.
+      const rects = Array.from(range.getClientRects());
+      if (rects.length === 0) {
+        // Collapsed or invisible range — draw a thin cursor-width strip.
+        appendOverlay(row, 0, 2, 0, row.clientHeight || 22);
+        continue;
+      }
+      for (const rect of rects) {
+        appendOverlay(
+          row,
+          rect.left - rowRect.left,
+          rect.width,
+          rect.top - rowRect.top,
+          rect.height,
+        );
+      }
+    } catch (_) {
+      // Fallback: highlight entire row segment.
+      appendOverlay(row, 0, rowWidth, 0, row.clientHeight || 22);
+    }
+  }
 }
 
 renderLayer.addEventListener("mousedown", (e) => {
@@ -3420,38 +3653,28 @@ renderLayer.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
   const lineIdx = getRenderLineIdxAtY(e.clientY);
   if (lineIdx === null) return;
-  const startOffset = getTextareaOffsetAtPoint(lineIdx, e.clientX);
+  const startOffset = getTextareaOffsetAtPoint(lineIdx, e.clientX, e.clientY);
   isRenderDragging = true;
+  renderDragPointer = { clientX: e.clientX, clientY: e.clientY };
   renderDragState = { startOffset, lastEndOffset: startOffset };
+  ensureRenderDragAutoScroll();
   e.preventDefault(); // Prevent browser text selection on renderLayer DOM
 });
 
 document.addEventListener("mousemove", (e) => {
   if (!renderDragState || !isRenderEnabled) return;
+  renderDragPointer = { clientX: e.clientX, clientY: e.clientY };
   if (!(e.buttons & 1)) {
     // Button released outside window
     clearRenderDragHighlight();
     isRenderDragging = false;
+    renderDragPointer = null;
+    stopRenderDragAutoScroll();
     renderDragState = null;
     return;
   }
 
-  const lineIdx = getRenderLineIdxAtY(e.clientY);
-  if (lineIdx === null) return;
-  const endOffset = getTextareaOffsetAtPoint(lineIdx, e.clientX);
-
-  // Skip if no change (avoids unnecessary DOM thrash)
-  if (endOffset === renderDragState.lastEndOffset) return;
-  renderDragState.lastEndOffset = endOffset;
-
-  const selStart = Math.min(renderDragState.startOffset, endOffset);
-  const selEnd = Math.max(renderDragState.startOffset, endOffset);
-
-  applyRenderDragHighlight(selStart, selEnd);
-
-  // Update textarea selection directly — isRenderDragging suppresses the
-  // select/syncSuspendRangeFromCursor path so rendering won't flicker.
-  editor.setSelectionRange(selStart, selEnd);
+  updateRenderDragSelectionAt(e.clientX, e.clientY);
 });
 
 document.addEventListener("mouseup", (e) => {
@@ -3461,6 +3684,8 @@ document.addEventListener("mouseup", (e) => {
 
   clearRenderDragHighlight();
   isRenderDragging = false;
+  renderDragPointer = null;
+  stopRenderDragAutoScroll();
   renderDragState = null;
 
   if (wasDrag) {
@@ -3468,6 +3693,7 @@ document.addEventListener("mouseup", (e) => {
     const selEnd = Math.max(startOffset, lastEndOffset);
     editor.focus();
     editor.setSelectionRange(selStart, selEnd);
+    syncRenderSelectionHighlightFromEditor();
     // Suppress the click event that might be generated on mouseup
     suppressNextRenderLayerClick = true;
   }
@@ -3492,7 +3718,9 @@ renderLayer.addEventListener("click", (e) => {
   const lineIdx = Math.max(0, line - 1);
 
   activeRenderCaretLine = lineIdx;
-  setCursorToLineColumnByClientX(lineIdx, e.clientX);
+  const clickOffset = getTextareaOffsetAtPoint(lineIdx, e.clientX, e.clientY);
+  editor.focus();
+  editor.setSelectionRange(clickOffset, clickOffset);
   syncSuspendRangeFromCursor();
   updateRenderCaret();
   toggleMathKeyboard(); // Show math keyboard if cursor is in math mode

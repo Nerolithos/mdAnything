@@ -675,6 +675,16 @@ body.math-open .editor-panel {
   transform: translateY(var(--preview-caret-offset, 0px));
 }
 
+.editor-wrap.render-on #editor::selection {
+  background: transparent;
+  color: transparent;
+}
+
+.editor-wrap.render-on #editor::-moz-selection {
+  background: transparent;
+  color: transparent;
+}
+
 .editor-wrap.render-on .render-layer {
   opacity: 1;
   visibility: visible;
@@ -729,6 +739,14 @@ body.math-open .editor-panel {
 .render-line.is-drag-selected {
   background: rgba(59, 130, 246, 0.15);
   border-radius: 3px;
+}
+
+.render-selection-overlay {
+  position: absolute;
+  border-radius: 3px;
+  background: rgba(59, 130, 246, 0.2);
+  pointer-events: none;
+  z-index: 2;
 }
 
 .render-editing-raw {

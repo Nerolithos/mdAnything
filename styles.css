@@ -242,6 +242,41 @@ body.welcome-open .welcome-screen {
   accent-color: var(--accent);
 }
 
+.compat-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 4px;
+}
+
+.compat-pill {
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.compat-pill.is-pass {
+  color: #0f766e;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.compat-pill.is-partial {
+  color: #b45309;
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+
+.compat-pill.is-risk {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
 .help {
   color: var(--muted);
   font-size: 13px;
@@ -636,7 +671,7 @@ body.math-open .editor-panel {
   opacity: 1;
   pointer-events: none;
   color: transparent;
-  caret-color: #111827;
+  caret-color: transparent;
   transform: translateY(var(--preview-caret-offset, 0px));
 }
 
@@ -645,6 +680,28 @@ body.math-open .editor-panel {
   visibility: visible;
   pointer-events: auto;
   overflow: hidden;
+}
+
+.render-caret {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  background: #0f172a;
+  border-radius: 1px;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 6;
+  animation: render-caret-blink 1.05s steps(1) infinite;
+}
+
+@keyframes render-caret-blink {
+  0%, 48% {
+    opacity: 1;
+  }
+  49%, 100% {
+    opacity: 0;
+  }
 }
 
 .editor-wrap:not(.render-on) .render-layer {

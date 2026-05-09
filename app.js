@@ -55,6 +55,19 @@ const onboardingDesc = document.getElementById("onboardingDesc");
 const onboardingNextBtn = document.getElementById("onboardingNextBtn");
 const onboardingRenderTarget = document.querySelector('[data-onboarding-target="render-switch"]');
 const onboardingToolbarTarget = document.querySelector('[data-onboarding-target="toolbar-panel"]');
+const compatPass = document.getElementById("compatPass");
+const compatPartial = document.getElementById("compatPartial");
+const compatRisk = document.getElementById("compatRisk");
+const renderCaret = document.createElement("span");
+renderCaret.className = "render-caret";
+
+function ensureRenderCaretAttached() {
+  if (!renderLayer.contains(renderCaret)) {
+    renderLayer.appendChild(renderCaret);
+  }
+}
+
+ensureRenderCaretAttached();
 
 const CUSTOM_MATH_STORAGE_KEY = "mdAnything.customMathItems";
 const FIRST_OPEN_STORAGE_KEY = "mdAnything.firstOpenDone";
@@ -80,6 +93,9 @@ const I18N = {
     renderToggle: "开启渲染",
     latexHintToggle: "兼容提示",
     lineGuideToggle: "行辅助线",
+    compatPass: "通过",
+    compatPartial: "部分",
+    compatRisk: "报错",
     download: "下载",
     tools: "工具",
     format: "格式",
@@ -178,6 +194,9 @@ const I18N = {
     renderToggle: "Render Preview",
     latexHintToggle: "Compat Hints",
     lineGuideToggle: "Line Guides",
+    compatPass: "Pass",
+    compatPartial: "Partial",
+    compatRisk: "Risk",
     download: "Download",
     tools: "Tools",
     format: "Formatting",
@@ -302,6 +321,8 @@ const leaveRestoreTimers = new Map();
 let isLatexHintEnabled = true;
 let activeRenderCaretLine = -1;
 let isAdjustingEditorScroll = false;
+let isAdjustingRenderScroll = false;
+let renderCaretUpdateRafId = 0;
 let previewCaretOffsetY = 0;
 let caretRealignRafId = 0;
 let caretRealignUntilTs = 0;
@@ -335,6 +356,55 @@ function ensureCaretAlignmentNow() {
   if (activeRenderCaretLine < 0) return;
   if (document.activeElement !== editor) return;
   alignEditorCaretToRenderedLine(activeRenderCaretLine);
+}
+
+function hideRenderCaret() {
+  renderCaret.style.visibility = "hidden";
+}
+
+function updateRenderCaretNow() {
+  if (!isRenderEnabled || document.activeElement !== editor) {
+    hideRenderCaret();
+    return;
+  }
+
+  if (editor.selectionStart !== editor.selectionEnd) {
+    hideRenderCaret();
+    return;
+  }
+
+  const lineIdx = getCurrentCursorLineIndex();
+  const lines = editor.value.split("\n");
+  const safeLine = Math.max(0, Math.min(lineIdx, lines.length - 1));
+  const row = renderLayer.querySelector(`.render-line[data-line="${safeLine + 1}"]`);
+  if (!row) {
+    hideRenderCaret();
+    return;
+  }
+
+  const lineText = lines[safeLine] || "";
+  const lineStart = getLineStartOffset(safeLine);
+  const col = Math.max(0, Math.min(lineText.length, editor.selectionStart - lineStart));
+
+  const editorStyle = window.getComputedStyle(editor);
+  setupLineMeasureLayer(editorStyle);
+  const leftPad = parseFloat(editorStyle.paddingLeft) || 0;
+  const x = leftPad + measureLinePrefixX(lineText, col);
+
+  const y = row.offsetTop + 2;
+  const lineHeight = parseFloat(editorStyle.lineHeight) || 22;
+
+  renderCaret.style.transform = `translate(${Math.max(0, x)}px, ${Math.max(0, y)}px)`;
+  renderCaret.style.height = `${Math.max(12, lineHeight * 0.9)}px`;
+  renderCaret.style.visibility = "visible";
+}
+
+function updateRenderCaret() {
+  if (renderCaretUpdateRafId) return;
+  renderCaretUpdateRafId = window.requestAnimationFrame(() => {
+    renderCaretUpdateRafId = 0;
+    updateRenderCaretNow();
+  });
 }
 
 function scheduleCaretRealignChecks(durationMs = 420) {
@@ -472,17 +542,37 @@ function setCursorToLineColumnByClientX(lineIdx, clientX) {
 }
 
 function alignEditorCaretToRenderedLine(lineIdx) {
-  const alignState = getPreviewCaretAlignState(lineIdx);
-  if (!alignState) return;
+  if (!isRenderEnabled || lineIdx < 0) return;
 
-  const { nextScrollTop, visualGapAfterScroll } = alignState;
-  if (Math.abs(nextScrollTop - editor.scrollTop) >= 0.5) {
-    isAdjustingEditorScroll = true;
-    editor.scrollTop = nextScrollTop;
-    isAdjustingEditorScroll = false;
+  const row = renderLayer.querySelector(`.render-line[data-line="${lineIdx + 1}"]`);
+  if (!row) return;
+
+  const layerRect = renderLayer.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const margin = 22;
+  let nextRenderScrollTop = renderLayer.scrollTop;
+
+  if (rowRect.top < layerRect.top + margin) {
+    nextRenderScrollTop += rowRect.top - (layerRect.top + margin);
+  } else if (rowRect.bottom > layerRect.bottom - margin) {
+    nextRenderScrollTop += rowRect.bottom - (layerRect.bottom - margin);
   }
 
-  setPreviewCaretOffset(visualGapAfterScroll);
+  const maxRender = Math.max(0, renderLayer.scrollHeight - renderLayer.clientHeight);
+  nextRenderScrollTop = Math.max(0, Math.min(maxRender, nextRenderScrollTop));
+
+  if (Math.abs(nextRenderScrollTop - renderLayer.scrollTop) >= 0.5) {
+    isAdjustingRenderScroll = true;
+    renderLayer.scrollTop = nextRenderScrollTop;
+    isAdjustingRenderScroll = false;
+  }
+
+  resetPreviewCaretOffset();
+  isAdjustingEditorScroll = true;
+  editor.scrollTop = clampEditorScrollTop(renderLayer.scrollTop);
+  isAdjustingEditorScroll = false;
+
+  updateRenderCaret();
   syncOverlayScroll();
 }
 
@@ -951,6 +1041,9 @@ function syncSuspendRangeFromCursor() {
   if (isRenderDragging) return; // Don't disturb rendering during drag selection
   if (document.activeElement !== editor) return;
   suspendRangeForCursor(editor.value.split("\n"));
+  // Keep cursor visually pinned to the active rendered line while navigating.
+  scheduleCaretRealignChecks(1400);
+  updateRenderCaret();
 }
 
 function markRenderRangeSuspended(range, lines) {
@@ -1419,6 +1512,36 @@ function applyLocaleToUI() {
 
   setText("#latexCompatTitle", t("latexCompatTitle"));
   if (latexCompatClose) latexCompatClose.textContent = t("latexCompatClose");
+
+  updateCompatStats();
+}
+
+function updateCompatStats() {
+  if (!compatPass || !compatPartial || !compatRisk) return;
+
+  const lines = editor.value.split("\n");
+  const totalEngines = 4;
+
+  let pass = 0;
+  let partial = 0;
+  let risk = 0;
+
+  for (const line of lines) {
+    const meta = buildLatexCompatMeta(line);
+    if (!meta) continue;
+
+    if (meta.risky) {
+      risk += 1;
+    } else if (meta.ok.length >= totalEngines) {
+      pass += 1;
+    } else {
+      partial += 1;
+    }
+  }
+
+  compatPass.textContent = `${t("compatPass")}: ${pass}`;
+  compatPartial.textContent = `${t("compatPartial")}: ${partial}`;
+  compatRisk.textContent = `${t("compatRisk")}: ${risk}`;
 }
 
 function setLanguage(nextLanguage) {
@@ -1922,16 +2045,16 @@ function downloadText(content, extension, mimeType) {
   URL.revokeObjectURL(url);
 }
 
-async function waitForPdfMathFonts() {
-  if (!document.fonts) return;
+async function waitForPdfMathFonts(targetDocument = document) {
+  if (!targetDocument.fonts) return;
 
   try {
-    await document.fonts.ready;
+    await targetDocument.fonts.ready;
   } catch (_err) {
     // Ignore readiness failures and continue with best effort font loading.
   }
 
-  if (typeof document.fonts.load !== "function") return;
+  if (typeof targetDocument.fonts.load !== "function") return;
 
   const fontFaces = [
     '1em "KaTeX_Main"',
@@ -1942,54 +2065,248 @@ async function waitForPdfMathFonts() {
     '1em "KaTeX_Size4"',
   ];
 
-  await Promise.allSettled(fontFaces.map((font) => document.fonts.load(font)));
+  await Promise.allSettled(fontFaces.map((font) => targetDocument.fonts.load(font)));
 }
 
-async function downloadPdf() {
-  const container = document.createElement("div");
-  container.className = "pdf-export";
-  container.style.background = "#fff";
-  container.style.color = "#111827";
-  container.style.fontFamily = '"Source Han Sans SC", sans-serif';
-  container.style.lineHeight = "1.6";
-  container.style.boxSizing = "border-box";
-  container.style.width = "180mm";
-  container.style.padding = "2cm";
-  container.innerHTML = md.render(editor.value);
+async function waitForPdfImages(container) {
+  const images = Array.from(container.querySelectorAll("img"));
+  if (!images.length) return;
+
+  const waits = images.map((img) => new Promise((resolve) => {
+    const finish = () => {
+      img.removeEventListener("load", finish);
+      img.removeEventListener("error", finish);
+      resolve();
+    };
+
+    if (img.complete) {
+      resolve();
+      return;
+    }
+
+    img.addEventListener("load", finish, { once: true });
+    img.addEventListener("error", finish, { once: true });
+    window.setTimeout(finish, 6000);
+  }));
+
+  await Promise.allSettled(waits);
+}
+
+async function waitForPdfLayoutStability() {
+  await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+}
+
+function preparePdfExportContainer(container) {
   container.querySelectorAll("img").forEach((img) => {
     img.style.maxWidth = "100%";
     img.style.height = "auto";
     img.style.display = "block";
+    img.style.pageBreakInside = "avoid";
+    img.style.breakInside = "avoid";
   });
-  container.querySelectorAll("pre code").forEach((el) => {
+
+  container.querySelectorAll("table").forEach((table) => {
+    table.style.width = "100%";
+    table.style.tableLayout = "fixed";
+    table.style.wordBreak = "break-word";
+    table.style.pageBreakInside = "avoid";
+    table.style.breakInside = "avoid";
+  });
+
+  container.querySelectorAll("pre, blockquote").forEach((block) => {
+    block.style.maxWidth = "100%";
+    block.style.overflowWrap = "anywhere";
+    block.style.wordBreak = "break-word";
+    block.style.pageBreakInside = "avoid";
+    block.style.breakInside = "avoid";
+  });
+}
+
+async function downloadPdf() {
+  const renderContainer = document.createElement("div");
+  renderContainer.className = "pdf-export";
+  renderContainer.style.background = "#fff";
+  renderContainer.style.color = "#111827";
+  renderContainer.style.fontFamily = '"Source Han Sans SC", sans-serif';
+  renderContainer.style.lineHeight = "1.6";
+  renderContainer.style.boxSizing = "border-box";
+  renderContainer.style.width = "180mm";
+  renderContainer.style.padding = "16mm";
+  renderContainer.innerHTML = md.render(editor.value);
+  preparePdfExportContainer(renderContainer);
+  renderContainer.querySelectorAll("pre code").forEach((el) => {
     window.hljs.highlightElement(el);
   });
-  document.body.appendChild(container);
 
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  const printFrame = document.createElement("iframe");
+  printFrame.setAttribute("aria-hidden", "true");
+  printFrame.style.position = "fixed";
+  printFrame.style.right = "0";
+  printFrame.style.bottom = "0";
+  printFrame.style.width = "0";
+  printFrame.style.height = "0";
+  printFrame.style.border = "0";
+  document.body.appendChild(printFrame);
 
-  const options = {
-    margin: 15,
-    filename: `${makeSafeFileName()}.pdf`,
-    image: { type: "jpeg", quality: 0.98 },
-    html2canvas: {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: "#ffffff",
-      windowHeight: container.scrollHeight,
-    },
-    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-    pagebreak: { mode: ["css", "avoid-all", "legacy"] },
-  };
+  const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+    .map((el) => `<link rel="stylesheet" href="${el.href}">`)
+    .join("\n");
+
+  const printCss = `
+    @page {
+      size: A4;
+      margin: 14mm;
+    }
+    html, body {
+      background: #fff;
+      color: #111827;
+      margin: 0;
+      padding: 0;
+      font-family: "Source Han Sans SC", sans-serif;
+      line-height: 1.6;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .pdf-export {
+      width: auto;
+      box-sizing: border-box;
+      padding: 0;
+    }
+    .pdf-export img {
+      max-width: 100%;
+      height: auto;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .pdf-export table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid #94a3b8;
+      table-layout: fixed;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .pdf-export th,
+    .pdf-export td {
+      border: 1px solid #94a3b8;
+      padding: 6px 8px;
+      vertical-align: top;
+      word-break: break-word;
+    }
+    .pdf-export pre,
+    .pdf-export blockquote,
+    .pdf-export table,
+    .pdf-export .katex-display {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .pdf-export h1,
+    .pdf-export h2,
+    .pdf-export h3,
+    .pdf-export h4,
+    .pdf-export h5,
+    .pdf-export h6 {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    .pdf-export .katex,
+    .pdf-export .katex-display {
+      overflow: visible;
+    }
+    .pdf-export u {
+      text-decoration-skip-ink: auto;
+      text-underline-offset: 0.12em;
+    }
+    .page-break {
+      page-break-before: always;
+      break-before: page;
+    }
+  `;
+
+  const doc = printFrame.contentDocument;
+  if (!doc) {
+    printFrame.remove();
+    throw new Error("Print document unavailable");
+  }
+
+  doc.open();
+  doc.write(`<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>${makeSafeFileName()}</title>
+        ${links}
+        <style>${printCss}</style>
+      </head>
+      <body>
+        <div class="pdf-export">${renderContainer.innerHTML}</div>
+      </body>
+    </html>`);
+  doc.close();
 
   try {
-    await window
-      .html2pdf()
-      .set(options)
-      .from(container)
-      .save();
+    await waitForPdfMathFonts(doc);
+    await waitForPdfImages(doc.body);
+    await waitForPdfLayoutStability();
+
+    const win = printFrame.contentWindow;
+    if (!win) throw new Error("Print window unavailable");
+
+    await new Promise((resolve) => {
+      const done = () => {
+        win.removeEventListener("afterprint", done);
+        resolve();
+      };
+      win.addEventListener("afterprint", done);
+      win.focus();
+      win.print();
+      window.setTimeout(done, 2000);
+    });
+  } catch (_err) {
+    // Fallback: keep html2pdf path for environments where print is blocked.
+    const container = document.createElement("div");
+    container.className = "pdf-export";
+    container.style.background = "#fff";
+    container.style.color = "#111827";
+    container.style.fontFamily = '"Source Han Sans SC", sans-serif';
+    container.style.lineHeight = "1.6";
+    container.style.boxSizing = "border-box";
+    container.style.width = "180mm";
+    container.style.padding = "16mm";
+    container.innerHTML = md.render(editor.value);
+    preparePdfExportContainer(container);
+    container.querySelectorAll("pre code").forEach((el) => {
+      window.hljs.highlightElement(el);
+    });
+    document.body.appendChild(container);
+
+    await waitForPdfMathFonts();
+    await waitForPdfImages(container);
+    await waitForPdfLayoutStability();
+
+    const options = {
+      margin: 12,
+      filename: `${makeSafeFileName()}.pdf`,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        imageTimeout: 15000,
+        width: container.scrollWidth,
+        windowHeight: container.scrollHeight,
+      },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      pagebreak: { mode: ["css", "legacy"] },
+    };
+
+    try {
+      await window.html2pdf().set(options).from(container).save();
+    } finally {
+      container.remove();
+    }
   } finally {
-    container.remove();
+    printFrame.remove();
   }
 }
 
@@ -2209,6 +2526,7 @@ function renderPreview(lines) {
   }
 
   renderLayer.innerHTML = htmlParts.join("");
+  ensureRenderCaretAttached();
 
   lines.forEach((line, idx) => {
     const lineErrors = findLatexErrors(line);
@@ -2279,11 +2597,15 @@ function setRenderMode(enabled) {
   editorWrap.classList.toggle("render-on", enabled);
   resetPreviewCaretOffset();
   if (!enabled) {
+    hideRenderCaret();
+  }
+  if (!enabled) {
     stopCaretRealignChecks();
   }
 
   if (enabled) {
     renderLayer.scrollTop = editor.scrollTop;
+    updateRenderCaret();
   } else {
     clearAllRestoreTimers();
     activeSuspendRange = null;
@@ -2547,6 +2869,7 @@ function refreshAll() {
   }
 
   toggleMathKeyboard();
+  updateCompatStats();
   
   // 同步滚动位置
   if (isRenderEnabled) {
@@ -2878,7 +3201,9 @@ editor.addEventListener("input", () => {
     // Without this, line numbers briefly fall back to default height while editing.
     syncRenderLineHeights();
     toggleMathKeyboard();
+    updateCompatStats();
     syncOverlayScroll();
+    updateRenderCaret();
     lastValue = editor.value;
     return;
   }
@@ -2894,18 +3219,22 @@ editor.addEventListener("click", toggleMathKeyboard);
 editor.addEventListener("keyup", toggleMathKeyboard);
 editor.addEventListener("click", () => {
   syncSuspendRangeFromCursor();
+  updateRenderCaret();
 });
 
 editor.addEventListener("keyup", () => {
   syncSuspendRangeFromCursor();
+  updateRenderCaret();
 });
 
 editor.addEventListener("focus", () => {
   syncSuspendRangeFromCursor();
+  updateRenderCaret();
 });
 
 editor.addEventListener("select", () => {
   syncSuspendRangeFromCursor();
+  updateRenderCaret();
 });
 
 document.addEventListener("selectionchange", () => {
@@ -2927,6 +3256,7 @@ editor.addEventListener("blur", (e) => {
   activeRenderCaretLine = -1;
   resetPreviewCaretOffset();
   stopCaretRealignChecks();
+  hideRenderCaret();
 
   setMathKeyboardOpen(false);
 });
@@ -2952,18 +3282,17 @@ renderLayer.addEventListener("scroll", () => {
   if (!isRenderEnabled) {
     return;
   }
-  if (isAdjustingEditorScroll) {
+  if (isAdjustingEditorScroll || isAdjustingRenderScroll) {
     syncOverlayScroll();
     return;
   }
-  if (activeRenderCaretLine >= 0) {
-    alignEditorCaretToRenderedLine(activeRenderCaretLine);
-  } else {
-    resetPreviewCaretOffset();
-    isAdjustingEditorScroll = true;
-    editor.scrollTop = clampEditorScrollTop(renderLayer.scrollTop);
-    isAdjustingEditorScroll = false;
-  }
+  // User is scrolling preview: do not pull view back to caret line.
+  stopCaretRealignChecks();
+  resetPreviewCaretOffset();
+  isAdjustingEditorScroll = true;
+  editor.scrollTop = clampEditorScrollTop(renderLayer.scrollTop);
+  isAdjustingEditorScroll = false;
+  updateRenderCaret();
   syncOverlayScroll();
 });
 
@@ -3165,6 +3494,7 @@ renderLayer.addEventListener("click", (e) => {
   activeRenderCaretLine = lineIdx;
   setCursorToLineColumnByClientX(lineIdx, e.clientX);
   syncSuspendRangeFromCursor();
+  updateRenderCaret();
   toggleMathKeyboard(); // Show math keyboard if cursor is in math mode
 });
 

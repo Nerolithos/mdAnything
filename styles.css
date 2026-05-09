@@ -460,6 +460,7 @@ body.math-open .editor-panel {
 .render-line {
   min-height: 1.6em;
   overflow: hidden;
+  position: relative;
 }
 
 .render-line > * {
@@ -632,15 +633,18 @@ body.math-open .editor-panel {
 }
 
 .editor-wrap.render-on #editor {
-  opacity: 0;
+  opacity: 1;
   pointer-events: none;
+  color: transparent;
+  caret-color: #111827;
+  transform: translateY(var(--preview-caret-offset, 0px));
 }
 
 .editor-wrap.render-on .render-layer {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .editor-wrap:not(.render-on) .render-layer {
@@ -652,6 +656,47 @@ body.math-open .editor-panel {
 .render-layer table {
   border-collapse: collapse;
   width: 100%;
+}
+
+.render-line.is-suspended {
+  background: rgba(226, 232, 240, 0.36);
+  border-radius: 6px;
+}
+
+.render-line.is-drag-selected {
+  background: rgba(59, 130, 246, 0.15);
+  border-radius: 3px;
+}
+
+.render-editing-raw {
+  color: #64748b;
+  white-space: pre-wrap;
+}
+
+.render-line-latex-error {
+  background: rgba(239, 68, 68, 0.12);
+  border-left: 2px solid #dc2626;
+  border-radius: 4px;
+}
+
+.latex-compat-badge {
+  position: absolute;
+  right: 8px;
+  top: 6px;
+  font-size: 11px;
+  color: #0f766e;
+  background: rgba(240, 253, 250, 0.9);
+  border: 1px solid rgba(15, 118, 110, 0.25);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.latex-compat-badge.is-risk {
+  color: #b91c1c;
+  background: rgba(254, 242, 242, 0.92);
+  border-color: rgba(220, 38, 38, 0.25);
 }
 
 .render-layer th,
@@ -811,6 +856,25 @@ dialog::backdrop {
   border-radius: 8px;
   padding: 7px 12px;
   cursor: pointer;
+}
+
+.latex-compat-summary {
+  font-size: 14px;
+  color: #334155;
+  margin-bottom: 8px;
+}
+
+.latex-compat-list {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.latex-compat-list li {
+  margin: 8px 0;
+  color: #1f2937;
+  line-height: 1.45;
 }
 
 body.show-line-guides .line-number-item,

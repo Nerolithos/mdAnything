@@ -51,6 +51,10 @@
         <input type="checkbox" id="renderToggle" />
         <span>开启渲染</span>
       </label>
+      <label class="switch-wrap" for="latexHintToggle">
+        <input type="checkbox" id="latexHintToggle" />
+        <span>兼容提示</span>
+      </label>
       <label class="switch-wrap" for="lineGuideToggle">
         <input type="checkbox" id="lineGuideToggle" />
         <span>行辅助线</span>
@@ -107,6 +111,11 @@
         <h3>表格</h3>
         <button class="tool-btn" id="openTableBuilder">建表</button>
         <button class="tool-btn" id="convertToTable">文本转 MD 表格</button>
+      </section>
+
+      <section class="tool-group">
+        <h3>LaTeX</h3>
+        <button class="tool-btn" id="openLatexCompat">兼容检查</button>
       </section>
     </aside>
 
@@ -211,6 +220,17 @@
       <div class="dialog-actions">
         <button type="button" id="customMathCancel">取消</button>
         <button type="submit" id="customMathSave">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="latexCompatDialog">
+    <form method="dialog" class="dialog-form" id="latexCompatForm">
+      <h3 id="latexCompatTitle">LaTeX 兼容检查</h3>
+      <div class="latex-compat-summary" id="latexCompatSummary"></div>
+      <ul class="latex-compat-list" id="latexCompatList"></ul>
+      <div class="dialog-actions">
+        <button type="button" id="latexCompatClose">关闭</button>
       </div>
     </form>
   </dialog>

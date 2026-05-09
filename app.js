@@ -12,6 +12,7 @@ const languageForm = document.getElementById("languageForm");
 const languageSelect = document.getElementById("languageSelect");
 const languageCancel = document.getElementById("languageCancel");
 const renderToggle = document.getElementById("renderToggle");
+const latexHintToggle = document.getElementById("latexHintToggle");
 const lineGuideToggle = document.getElementById("lineGuideToggle");
 const mathTemplateDialog = document.getElementById("mathTemplateDialog");
 const mathTemplateForm = document.getElementById("mathTemplateForm");
@@ -33,6 +34,11 @@ const customMathPreview = document.getElementById("customMathPreview");
 const customMathStatus = document.getElementById("customMathStatus");
 const customMathCancel = document.getElementById("customMathCancel");
 const customMathSave = document.getElementById("customMathSave");
+const openLatexCompat = document.getElementById("openLatexCompat");
+const latexCompatDialog = document.getElementById("latexCompatDialog");
+const latexCompatSummary = document.getElementById("latexCompatSummary");
+const latexCompatList = document.getElementById("latexCompatList");
+const latexCompatClose = document.getElementById("latexCompatClose");
 const mathKeyboard = document.getElementById("mathKeyboard");
 const mathGrid = document.getElementById("mathGrid");
 const editorWrap = document.querySelector(".editor-wrap");
@@ -53,6 +59,7 @@ const onboardingToolbarTarget = document.querySelector('[data-onboarding-target=
 const CUSTOM_MATH_STORAGE_KEY = "mdAnything.customMathItems";
 const FIRST_OPEN_STORAGE_KEY = "mdAnything.firstOpenDone";
 const LOCALE_STORAGE_KEY = "mdAnything.locale";
+const LATEX_HINT_STORAGE_KEY = "mdAnything.latexHints";
 const DEFAULT_STARTER_CONTENT = [
   "# This is a Markdown helper editor",
   "",
@@ -71,6 +78,7 @@ const I18N = {
   zh: {
     welcomeTagline: "Markdown Smart Editor",
     renderToggle: "开启渲染",
+    latexHintToggle: "兼容提示",
     lineGuideToggle: "行辅助线",
     download: "下载",
     tools: "工具",
@@ -100,6 +108,19 @@ const I18N = {
     table: "表格",
     buildTable: "建表",
     textToTable: "文本转 MD 表格",
+    latexSection: "LaTeX",
+    latexCompatBtn: "兼容检查",
+    latexCompatTitle: "LaTeX 兼容检查",
+    latexCompatClose: "关闭",
+    latexCompatSummaryOk: "未发现明显兼容性风险。",
+    latexCompatSummaryIssues: "发现 {count} 项兼容性风险，建议处理后再发布。",
+    latexIssueUnmatchedDollar: "检测到不成对的 $ 定界符，部分渲染器会直接跳过该公式。建议检查转义与闭合。",
+    latexIssueTableMath: "表格中的公式在 GitHub / 部分 Markdown 渲染链中经常失败。建议改成表格外块级公式，或预渲染为图片。",
+    latexIssueParenDelimiters: "检测到 \\( ... \\) 或 \\[ ... \\] 定界符；部分 markdown-it 配置默认不识别。建议统一改为 $...$ 与 $$...$$。",
+    latexIssueAlignEnv: "检测到 align/aligned 环境，KaTeX 与 GitHub 渲染策略可能不同。建议用 $$...$$ 包裹并在目标平台先验证。",
+    latexIssueCodeFenceMath: "代码块中出现数学定界符，发布后通常不会按公式渲染。建议移出代码块。",
+    latexIssueBlockSpacing: "检测到 $$ 块公式与正文紧贴，部分引擎会误判。建议在公式前后保留空行。",
+    latexIssueEngineHint: "引擎提示：GitHub（MathJax）与本地 markdown-it-texmath/KaTeX 语法覆盖不同，发布前请做双端预览。",
     placeholder: "开始输入 Markdown...\n\n输入 $$ 会自动进入数学模式，下一次 $$ 结束。\n输入 $ 进入单行数学模式，下一次 $ 结束。\n输入 ``` 会触发语言选择。",
     mathKeyboardTitle: "数学符号键盘",
     customMath: "自定义",
@@ -155,6 +176,7 @@ const I18N = {
   en: {
     welcomeTagline: "Markdown Helper Editor",
     renderToggle: "Render Preview",
+    latexHintToggle: "Compat Hints",
     lineGuideToggle: "Line Guides",
     download: "Download",
     tools: "Tools",
@@ -184,6 +206,19 @@ const I18N = {
     table: "Table",
     buildTable: "Build Table",
     textToTable: "Text to MD Table",
+    latexSection: "LaTeX",
+    latexCompatBtn: "Compatibility Check",
+    latexCompatTitle: "LaTeX Compatibility Check",
+    latexCompatClose: "Close",
+    latexCompatSummaryOk: "No obvious compatibility risks were detected.",
+    latexCompatSummaryIssues: "Detected {count} compatibility risks. Fix these before publishing.",
+    latexIssueUnmatchedDollar: "Unmatched $ delimiters detected. Some renderers skip these formulas entirely. Check escaping and closing delimiters.",
+    latexIssueTableMath: "Math inside tables often fails in GitHub or some Markdown pipelines. Consider moving formulas outside tables or pre-rendering as images.",
+    latexIssueParenDelimiters: "Found \\( ... \\) or \\[ ... \\] delimiters. Some markdown-it setups do not parse them by default. Prefer $...$ and $$...$$.",
+    latexIssueAlignEnv: "Detected align/aligned environments; KaTeX and GitHub may behave differently. Wrap with $$...$$ and verify on target platforms.",
+    latexIssueCodeFenceMath: "Math delimiters were found inside code fences, where formulas usually won't render. Move them outside the code block.",
+    latexIssueBlockSpacing: "Detected $$ blocks adjacent to normal text. Some engines mis-parse this. Keep a blank line before and after block math.",
+    latexIssueEngineHint: "Engine hint: GitHub (MathJax) and local markdown-it-texmath/KaTeX do not have identical syntax coverage. Always preview in both.",
     placeholder: "Start typing Markdown...\n\nTyping $$ enters block math mode and the next $$ closes it.\nTyping $ enters inline math mode and the next $ closes it.\nTyping ``` opens language picker.",
     mathKeyboardTitle: "Math Symbol Keyboard",
     customMath: "Custom",
@@ -260,6 +295,690 @@ const welcomeRainState = {
   dpr: 1,
   ctx: null,
 };
+
+const LINE_RESTORE_ON_LEAVE_MS = 300;
+let activeSuspendRange = null;
+const leaveRestoreTimers = new Map();
+let isLatexHintEnabled = true;
+let activeRenderCaretLine = -1;
+let isAdjustingEditorScroll = false;
+let previewCaretOffsetY = 0;
+let caretRealignRafId = 0;
+let caretRealignUntilTs = 0;
+
+function clampEditorScrollTop(scrollTop) {
+  const max = Math.max(0, editor.scrollHeight - editor.clientHeight);
+  return Math.max(0, Math.min(max, scrollTop));
+}
+
+function setPreviewCaretOffset(offsetY) {
+  const safe = Number.isFinite(offsetY) ? offsetY : 0;
+  const normalized = Math.abs(safe) < 0.5 ? 0 : safe;
+  if (Math.abs(previewCaretOffsetY - normalized) < 0.5) return;
+  previewCaretOffsetY = normalized;
+  editor.style.setProperty("--preview-caret-offset", `${previewCaretOffsetY}px`);
+}
+
+function resetPreviewCaretOffset() {
+  setPreviewCaretOffset(0);
+}
+
+function stopCaretRealignChecks() {
+  caretRealignUntilTs = 0;
+  if (!caretRealignRafId) return;
+  window.cancelAnimationFrame(caretRealignRafId);
+  caretRealignRafId = 0;
+}
+
+function ensureCaretAlignmentNow() {
+  if (!isRenderEnabled) return;
+  if (activeRenderCaretLine < 0) return;
+  if (document.activeElement !== editor) return;
+  alignEditorCaretToRenderedLine(activeRenderCaretLine);
+}
+
+function scheduleCaretRealignChecks(durationMs = 420) {
+  if (!isRenderEnabled || activeRenderCaretLine < 0) return;
+  const now = (window.performance && typeof window.performance.now === "function")
+    ? window.performance.now()
+    : Date.now();
+  caretRealignUntilTs = Math.max(caretRealignUntilTs, now + durationMs);
+  if (caretRealignRafId) return;
+
+  const tick = (ts) => {
+    caretRealignRafId = 0;
+    ensureCaretAlignmentNow();
+
+    if (!isRenderEnabled || activeRenderCaretLine < 0 || document.activeElement !== editor) {
+      caretRealignUntilTs = 0;
+      return;
+    }
+
+    if (ts < caretRealignUntilTs) {
+      caretRealignRafId = window.requestAnimationFrame(tick);
+      return;
+    }
+
+    caretRealignUntilTs = 0;
+  };
+
+  caretRealignRafId = window.requestAnimationFrame(tick);
+}
+
+function getCurrentCursorLineIndex() {
+  return editor.value.slice(0, editor.selectionStart).split("\n").length - 1;
+}
+
+function getLineEndOffset(lineIdx) {
+  const lines = editor.value.split("\n");
+  let pos = 0;
+  for (let i = 0; i < lines.length; i += 1) {
+    const len = lines[i].length;
+    if (i === lineIdx) {
+      return pos + len;
+    }
+    pos += len + 1;
+  }
+  return editor.value.length;
+}
+
+function getLineStartOffset(lineIdx) {
+  const lines = editor.value.split("\n");
+  const safeLine = Math.max(0, Math.min(lineIdx, lines.length - 1));
+  let pos = 0;
+  for (let i = 0; i < safeLine; i += 1) {
+    pos += lines[i].length + 1;
+  }
+  return pos;
+}
+
+function setCursorToLineEnd(lineIdx) {
+  const lines = editor.value.split("\n");
+  const safeLine = Math.max(0, Math.min(lineIdx, lines.length - 1));
+  const end = getLineEndOffset(safeLine);
+  editor.focus();
+  editor.setSelectionRange(end, end);
+}
+
+function setupLineMeasureLayer(style) {
+  caretMeasureLayer.style.whiteSpace = "pre";
+  caretMeasureLayer.style.wordBreak = "normal";
+  caretMeasureLayer.style.overflowWrap = "normal";
+  caretMeasureLayer.style.padding = "0";
+  caretMeasureLayer.style.border = "0";
+  caretMeasureLayer.style.width = "auto";
+  caretMeasureLayer.style.fontFamily = style.fontFamily;
+  caretMeasureLayer.style.fontSize = style.fontSize;
+  caretMeasureLayer.style.lineHeight = style.lineHeight;
+  caretMeasureLayer.style.fontWeight = style.fontWeight;
+  caretMeasureLayer.style.fontStyle = style.fontStyle;
+  caretMeasureLayer.style.letterSpacing = style.letterSpacing;
+  caretMeasureLayer.style.wordSpacing = style.wordSpacing;
+  caretMeasureLayer.style.textTransform = style.textTransform;
+  caretMeasureLayer.style.tabSize = style.tabSize;
+}
+
+function measureLinePrefixX(lineText, col) {
+  const prefix = col > 0 ? lineText.slice(0, col) : "";
+  caretMeasureLayer.textContent = prefix;
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  caretMeasureLayer.appendChild(marker);
+  return marker.offsetLeft;
+}
+
+function getLineColumnFromClientX(lineIdx, clientX) {
+  const lines = editor.value.split("\n");
+  const safeLine = Math.max(0, Math.min(lineIdx, lines.length - 1));
+  const lineText = lines[safeLine] || "";
+  if (!lineText.length) return 0;
+
+  const editorStyle = window.getComputedStyle(editor);
+  setupLineMeasureLayer(editorStyle);
+
+  const layerRect = renderLayer.getBoundingClientRect();
+  const leftPad = parseFloat(editorStyle.paddingLeft) || 0;
+  const x = Math.max(0, clientX - layerRect.left - leftPad);
+
+  let low = 0;
+  let high = lineText.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const midX = measureLinePrefixX(lineText, mid);
+    if (midX <= x) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  if (low <= 0) return 0;
+  const leftX = measureLinePrefixX(lineText, low);
+  const prevX = measureLinePrefixX(lineText, low - 1);
+  if (Math.abs(x - prevX) <= Math.abs(leftX - x)) {
+    return low - 1;
+  }
+  return low;
+}
+
+function setCursorToLineColumnByClientX(lineIdx, clientX) {
+  const lines = editor.value.split("\n");
+  const safeLine = Math.max(0, Math.min(lineIdx, lines.length - 1));
+  const lineStart = getLineStartOffset(safeLine);
+  const column = getLineColumnFromClientX(safeLine, clientX);
+  const pos = lineStart + column;
+  editor.focus();
+  editor.setSelectionRange(pos, pos);
+}
+
+function alignEditorCaretToRenderedLine(lineIdx) {
+  const alignState = getPreviewCaretAlignState(lineIdx);
+  if (!alignState) return;
+
+  const { nextScrollTop, visualGapAfterScroll } = alignState;
+  if (Math.abs(nextScrollTop - editor.scrollTop) >= 0.5) {
+    isAdjustingEditorScroll = true;
+    editor.scrollTop = nextScrollTop;
+    isAdjustingEditorScroll = false;
+  }
+
+  setPreviewCaretOffset(visualGapAfterScroll);
+  syncOverlayScroll();
+}
+
+function getPreviewCaretAlignState(lineIdx) {
+  if (!isRenderEnabled || lineIdx < 0 || !caretMeasureLayer) return null;
+
+  const row = renderLayer.querySelector(`.render-line[data-line="${lineIdx + 1}"]`);
+  if (!row) return null;
+
+  const renderLayerRect = renderLayer.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const targetCaretY = rowRect.top - renderLayerRect.top;
+  const caretAbsoluteY = getCaretAbsoluteYInEditor();
+  if (caretAbsoluteY === null) return null;
+
+  const idealScrollTop = caretAbsoluteY - targetCaretY;
+  const nextScrollTop = clampEditorScrollTop(idealScrollTop);
+  const visualCaretY = caretAbsoluteY - nextScrollTop;
+
+  return {
+    nextScrollTop,
+    visualGapAfterScroll: targetCaretY - visualCaretY,
+  };
+}
+
+function getCaretAbsoluteYInEditor() {
+  if (!caretMeasureLayer) return null;
+
+  const style = window.getComputedStyle(editor);
+  const before = editor.value.slice(0, editor.selectionStart);
+  const safeBefore = before.endsWith("\n") ? `${before} ` : before;
+
+  caretMeasureLayer.style.width = `${editor.clientWidth}px`;
+  caretMeasureLayer.style.fontFamily = style.fontFamily;
+  caretMeasureLayer.style.fontSize = style.fontSize;
+  caretMeasureLayer.style.lineHeight = style.lineHeight;
+  caretMeasureLayer.style.fontWeight = style.fontWeight;
+  caretMeasureLayer.style.letterSpacing = style.letterSpacing;
+  caretMeasureLayer.style.wordSpacing = style.wordSpacing;
+  caretMeasureLayer.style.textIndent = style.textIndent;
+  caretMeasureLayer.style.textTransform = style.textTransform;
+  caretMeasureLayer.style.tabSize = style.tabSize;
+  caretMeasureLayer.style.overflowWrap = "break-word";
+  caretMeasureLayer.style.textAlign = style.textAlign;
+  caretMeasureLayer.style.direction = style.direction;
+  caretMeasureLayer.style.padding = style.padding;
+
+  caretMeasureLayer.textContent = safeBefore;
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  caretMeasureLayer.appendChild(marker);
+
+  return marker.offsetTop;
+}
+
+function stripCodeFences(text) {
+  return text.replace(/```[\s\S]*?```/g, "");
+}
+
+function findLatexErrors(text) {
+  const errors = [];
+  const content = stripCodeFences(text);
+  const pattern = /(\$\$([\s\S]*?)\$\$)|(\$([^\n$]+?)\$)/g;
+  let match = pattern.exec(content);
+  while (match) {
+    const expr = (match[2] ?? match[4] ?? "").trim();
+    if (expr.length) {
+      try {
+        window.katex.renderToString(expr, { throwOnError: true, displayMode: !!match[1] });
+      } catch (err) {
+        errors.push(String(err.message || err));
+      }
+    }
+    match = pattern.exec(content);
+  }
+  return errors;
+}
+
+function hasLatexContent(line) {
+  return /(?<!\\)\$/.test(line) || /\\\(|\\\)|\\\[|\\\]|\\begin\{|\\end\{/.test(line);
+}
+
+function buildLatexCompatMeta(line) {
+  if (!hasLatexContent(line)) return null;
+
+  const ok = [];
+  const failed = [];
+
+  if (testKatexCompat(line)) {
+    ok.push("KaTeX");
+  } else {
+    failed.push("KaTeX");
+  }
+
+  if (testMathJaxCompat(line)) {
+    ok.push("MathJax");
+  } else {
+    failed.push("MathJax");
+  }
+
+  if (testGitHubMarkdownCompat(line)) {
+    ok.push("GitHub");
+  } else {
+    failed.push("GitHub");
+  }
+
+  if (testMarkdownItCompat(line)) {
+    ok.push("markdown-it");
+  } else {
+    failed.push("markdown-it");
+  }
+
+  return {
+    ok,
+    risky: ok.length === 0,
+  };
+}
+
+// Extract all math expressions from a line (both $...$ and $$...$$).
+// Returns array of { expr, isBlock } objects.
+function extractMathExprs(text) {
+  const results = [];
+  // Process block first to avoid double-matching
+  const blockPattern = /\$\$([\s\S]*?)\$\$/g;
+  const inlinePattern = /(?<![\\$])\$(?!\$)((?:[^$\\]|\\[\s\S])*?)\$/g;
+
+  let match;
+  // Mark positions consumed by block expressions
+  const blockRanges = [];
+  while ((match = blockPattern.exec(text))) {
+    results.push({ expr: match[1].trim(), isBlock: true });
+    blockRanges.push([match.index, match.index + match[0].length]);
+  }
+  while ((match = inlinePattern.exec(text))) {
+    const pos = match.index;
+    // Skip if inside a block expression
+    const insideBlock = blockRanges.some(([s, e]) => pos >= s && pos < e);
+    if (!insideBlock) {
+      results.push({ expr: match[1].trim(), isBlock: false });
+    }
+  }
+  return results.filter((r) => r.expr.length > 0);
+}
+
+function tryKatexRender(expr, displayMode) {
+  if (!window.katex) return false;
+  try {
+    window.katex.renderToString(expr, { throwOnError: true, displayMode });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// KaTeX: supports $...$ and $$...$$, supports \newcommand, supports matrices in both modes.
+// Does NOT recognize \(...\) or \[...\] — those are MathJax-native, not KaTeX delimiters.
+function testKatexCompat(line) {
+  if (!hasLatexContent(line)) return true;
+
+  // \(...\) and \[...\] are not KaTeX delimiters — KaTeX does not render them as math
+  if (/\\\(|\\\)|\\\[|\\\]/.test(line)) return false;
+
+  const exprs = extractMathExprs(line);
+  if (!exprs.length) return false; // has latex-like content but no recognized delimiters
+
+  return exprs.every(({ expr, isBlock }) => tryKatexRender(expr, isBlock));
+}
+
+// MathJax (standalone): supports $...$, $$...$$, \(...\), \[...\].
+// Supports \newcommand. Supports matrices everywhere.
+// KaTeX is a good proxy for valid LaTeX that MathJax also handles.
+function testMathJaxCompat(line) {
+  if (!hasLatexContent(line)) return true;
+
+  // Extract \(...\) and \[...\] expressions too, and test them via KaTeX
+  const parenExprs = [];
+  let m;
+  const parenInline = /\\\(([\s\S]*?)\\\)/g;
+  const bracketBlock = /\\\[([\s\S]*?)\\\]/g;
+  while ((m = parenInline.exec(line))) parenExprs.push({ expr: m[1].trim(), isBlock: false });
+  while ((m = bracketBlock.exec(line))) parenExprs.push({ expr: m[1].trim(), isBlock: true });
+
+  const dollarExprs = extractMathExprs(line);
+  const allExprs = [...dollarExprs, ...parenExprs].filter((r) => r.expr.length > 0);
+
+  if (!allExprs.length) return false;
+
+  return allExprs.every(({ expr, isBlock }) => tryKatexRender(expr, isBlock));
+}
+
+// GitHub README math (via MathJax):
+//   - Supports: $...$ inline, $$...$$ block, ```math block
+//   - Does NOT support: \(...\) or \[...\] (GitHub's parser doesn't enable these)
+//   - Does NOT support: | inside inline $...$ (pipe breaks Markdown table parsing)
+//   - Does NOT support: \newcommand persisting across expressions (GitHub strips macros)
+//   - Matrices (\begin{bmatrix} etc.) work ONLY in $$...$$ blocks, not in inline $...$
+//   - MathJax is used, so valid MathJax LaTeX generally works
+function testGitHubMarkdownCompat(line) {
+  if (!hasLatexContent(line)) return true;
+
+  // GitHub does not enable \(...\) or \[...\] syntax
+  if (/\\\(|\\\)|\\\[|\\\]/.test(line)) return false;
+
+  // \newcommand at top level is not persisted in GitHub's sandboxed MathJax
+  if (/\\newcommand|\\renewcommand|\\providecommand|\\def\s*\\|\\gdef/.test(line)) return false;
+
+  const exprs = extractMathExprs(line);
+  if (!exprs.length) return false;
+
+  for (const { expr, isBlock } of exprs) {
+    // Pipe character inside inline math breaks GitHub table parsing
+    if (!isBlock && expr.includes("|")) return false;
+
+    // Matrices inside inline $...$ render poorly and are unsupported in practice
+    if (!isBlock && /\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|smallmatrix)/.test(expr)) {
+      return false;
+    }
+
+    if (!tryKatexRender(expr, isBlock)) return false;
+  }
+
+  return true;
+}
+
+// markdown-it-texmath (default config):
+//   - Only recognizes $...$ and $$...$$ (dollar delimiters)
+//   - Does NOT recognize \(...\) or \[...\] unless plugin is reconfigured
+//   - Rendering is done by KaTeX, so KaTeX validity applies
+function testMarkdownItCompat(line) {
+  if (!hasLatexContent(line)) return true;
+
+  // markdown-it-texmath default: no \(...\) or \[...\] support
+  if (/\\\(|\\\)|\\\[|\\\]/.test(line)) return false;
+
+  // \newcommand etc. — KaTeX supports it inside one expression, but markdown-it doesn't
+  // process multi-line macro definitions meaningfully
+  if (/^\\newcommand|^\\renewcommand|^\\def\s*\\/.test(line.trim())) return false;
+
+  const exprs = extractMathExprs(line);
+  if (!exprs.length) return false;
+
+  return exprs.every(({ expr, isBlock }) => tryKatexRender(expr, isBlock));
+}
+
+function applyLatexCompatBadge(row, line) {
+  if (!row) return;
+  row.querySelectorAll(".latex-compat-badge").forEach((badge) => badge.remove());
+  if (!isLatexHintEnabled) return;
+
+  const meta = buildLatexCompatMeta(line);
+  if (!meta) return;
+
+  const badge = document.createElement("span");
+  badge.className = `latex-compat-badge${meta.risky ? " is-risk" : ""}`;
+  badge.textContent = meta.risky ? "Compat: risk" : `Compat: ${meta.ok.join(" / ")}`;
+  row.appendChild(badge);
+}
+
+function rangesEqual(a, b) {
+  if (!a || !b) return false;
+  return a.start === b.start && a.end === b.end;
+}
+
+function rangeKey(range) {
+  return `${range.start}:${range.end}`;
+}
+
+function clearRestoreTimerForRange(range) {
+  if (!range) return;
+  const key = rangeKey(range);
+  const timer = leaveRestoreTimers.get(key);
+  if (!timer) return;
+  clearTimeout(timer);
+  leaveRestoreTimers.delete(key);
+}
+
+function clearAllRestoreTimers() {
+  leaveRestoreTimers.forEach((timerId) => {
+    clearTimeout(timerId);
+  });
+  leaveRestoreTimers.clear();
+}
+
+function resolveCursorRange(lines) {
+  const lineIdx = getCurrentCursorLineIndex();
+  const fenceRange = getCodeFenceRange(lines, lineIdx);
+  if (fenceRange.inFence) {
+    return { start: fenceRange.start, end: fenceRange.end, inBlock: false };
+  }
+  return isLineInsideBlockMath(lines, lineIdx);
+}
+
+function restoreRangeWithCurrentContent(range) {
+  if (!range || !isRenderEnabled) return;
+  const lines = editor.value.split("\n");
+  if (isFenceOrTableContext(lines, range.start) || isFenceOrTableContext(lines, range.end)) {
+    renderPreview(lines);
+    ensureCaretAlignmentNow();
+    return;
+  }
+  rerenderRange(range.start, range.end, lines);
+  ensureCaretAlignmentNow();
+}
+
+function scheduleRestoreRange(range) {
+  if (!range) return;
+  clearRestoreTimerForRange(range);
+  const timerId = window.setTimeout(() => {
+    if (isRenderDragging) {
+      // Re-schedule: keep deferring until drag ends
+      scheduleRestoreRange(range);
+      return;
+    }
+    if (!(activeSuspendRange && rangesEqual(activeSuspendRange, range))) {
+      restoreRangeWithCurrentContent(range);
+      scheduleCaretRealignChecks(LINE_RESTORE_ON_LEAVE_MS + 260);
+    }
+    leaveRestoreTimers.delete(rangeKey(range));
+  }, LINE_RESTORE_ON_LEAVE_MS);
+  leaveRestoreTimers.set(rangeKey(range), timerId);
+}
+
+function suspendRangeForCursor(lines) {
+  activeRenderCaretLine = getCurrentCursorLineIndex();
+  const range = resolveCursorRange(lines);
+  clearRestoreTimerForRange(range);
+  if (!activeSuspendRange || !rangesEqual(activeSuspendRange, range)) {
+    if (activeSuspendRange) {
+      scheduleRestoreRange(activeSuspendRange);
+    }
+    activeSuspendRange = { ...range };
+  }
+  markRenderRangeSuspended(range.start, range.end, lines);
+  alignEditorCaretToRenderedLine(activeRenderCaretLine);
+}
+
+function syncSuspendRangeFromCursor() {
+  if (!isRenderEnabled) return;
+  if (isRenderDragging) return; // Don't disturb rendering during drag selection
+  if (document.activeElement !== editor) return;
+  suspendRangeForCursor(editor.value.split("\n"));
+}
+
+function markRenderRangeSuspended(startLine, endLine, lines) {
+  for (let i = startLine; i <= endLine; i += 1) {
+    const row = renderLayer.querySelector(`.render-line[data-line="${i + 1}"]`);
+    if (!row) continue;
+    row.classList.add("is-suspended");
+    row.classList.remove("render-line-latex-error");
+    const escaped = md.utils.escapeHtml(lines[i] || "");
+    row.innerHTML = escaped.length ? `<span class="render-editing-raw">${escaped}</span>` : "&nbsp;";
+    applyLatexCompatBadge(row, lines[i] || "");
+  }
+}
+
+function isLineInsideBlockMath(lines, lineIdx) {
+  let inBlock = false;
+  let start = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    const count = (lines[i].match(/\$\$/g) || []).length;
+    if (count % 2 === 1) {
+      if (!inBlock) {
+        start = i;
+      } else {
+        if (lineIdx >= start && lineIdx <= i) {
+          return { start, end: i, inBlock: true };
+        }
+      }
+      inBlock = !inBlock;
+    }
+  }
+  if (inBlock && lineIdx >= start) {
+    return { start, end: lines.length - 1, inBlock: true };
+  }
+  return { start: lineIdx, end: lineIdx, inBlock: false };
+}
+
+function getCodeFenceRange(lines, lineIdx) {
+  let inFence = false;
+  let start = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (/^\s*```/.test(lines[i])) {
+      if (!inFence) {
+        inFence = true;
+        start = i;
+      } else {
+        if (lineIdx >= start && lineIdx <= i) {
+          return { start, end: i, inFence: true };
+        }
+        inFence = false;
+        start = -1;
+      }
+    }
+  }
+
+  if (inFence && lineIdx >= start) {
+    return { start, end: lines.length - 1, inFence: true };
+  }
+
+  return { start: lineIdx, end: lineIdx, inFence: false };
+}
+
+function isFenceOrTableContext(lines, lineIdx) {
+  let inFence = false;
+  for (let i = 0; i <= lineIdx; i += 1) {
+    if (/^\s*```/.test(lines[i])) {
+      inFence = !inFence;
+    }
+  }
+  if (inFence) return true;
+
+  const hasTableMark = (value) => value && value.includes("|");
+  return hasTableMark(lines[lineIdx - 1]) || hasTableMark(lines[lineIdx]) || hasTableMark(lines[lineIdx + 1]);
+}
+
+function rerenderRange(startLine, endLine, lines) {
+  for (let i = startLine; i <= endLine; i += 1) {
+    const row = renderLayer.querySelector(`.render-line[data-line="${i + 1}"]`);
+    if (!row) {
+      renderPreview(lines);
+      return;
+    }
+    row.classList.remove("is-suspended", "render-line-latex-error");
+    row.innerHTML = renderSingleLine(lines[i] || "");
+
+    const lineErrors = findLatexErrors(lines[i] || "");
+    if (lineErrors.length) {
+      row.classList.add("render-line-latex-error");
+      row.title = lineErrors[0];
+    } else {
+      row.removeAttribute("title");
+    }
+    applyLatexCompatBadge(row, lines[i] || "");
+  }
+
+  if (endLine > startLine) {
+    const blockText = lines.slice(startLine, endLine + 1).join("\n");
+    const blockErrors = findLatexErrors(blockText);
+    if (blockErrors.length) {
+      for (let i = startLine; i <= endLine; i += 1) {
+        const row = renderLayer.querySelector(`.render-line[data-line="${i + 1}"]`);
+        if (row) {
+          row.classList.add("render-line-latex-error");
+          row.title = blockErrors[0];
+        }
+      }
+    }
+  }
+
+  ensureCaretAlignmentNow();
+  requestAnimationFrame(syncRenderLineHeights);
+  scheduleCaretRealignChecks(260);
+}
+
+function analyzeLatexCompatibility(markdown) {
+  const issues = [];
+  const codeFencePattern = /```[\s\S]*?```/g;
+  const codeBlocks = markdown.match(codeFencePattern) || [];
+  const noCode = markdown.replace(codeFencePattern, "\n");
+
+  const dollars = noCode.match(/(?<!\\)\$/g) || [];
+  if (dollars.length % 2 !== 0) {
+    issues.push(t("latexIssueUnmatchedDollar"));
+  }
+
+  const lines = markdown.split("\n");
+  const tableMath = lines.some((line) => line.includes("|") && /(?<!\\)\$/.test(line));
+  if (tableMath) {
+    issues.push(t("latexIssueTableMath"));
+  }
+
+  if (/\\\(|\\\)|\\\[|\\\]/.test(noCode)) {
+    issues.push(t("latexIssueParenDelimiters"));
+  }
+
+  if (/\\begin\{align\*?\}|\\begin\{aligned\}/.test(noCode)) {
+    issues.push(t("latexIssueAlignEnv"));
+  }
+
+  if (codeBlocks.some((block) => /(?<!\\)\$|\\begin\{/.test(block))) {
+    issues.push(t("latexIssueCodeFenceMath"));
+  }
+
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!lines[i].includes("$$")) continue;
+    const prev = (lines[i - 1] || "").trim();
+    const next = (lines[i + 1] || "").trim();
+    if ((prev && !prev.startsWith("$$")) || (next && !next.startsWith("$$"))) {
+      issues.push(t("latexIssueBlockSpacing"));
+      break;
+    }
+  }
+
+  issues.push(t("latexIssueEngineHint"));
+  return issues;
+}
 
 function t(key, vars = {}) {
   const pack = I18N[currentLanguage] || I18N.zh;
@@ -478,6 +1197,7 @@ function applyLocaleToUI() {
   if (welcomeTagline) welcomeTagline.textContent = t("welcomeTagline");
 
   setText('label[for="renderToggle"] span', t("renderToggle"));
+  setText('label[for="latexHintToggle"] span', t("latexHintToggle"));
   setText('label[for="lineGuideToggle"] span', t("lineGuideToggle"));
   setText("#downloadBtn", t("download"));
 
@@ -491,6 +1211,7 @@ function applyLocaleToUI() {
     if (groupTitles[1]) groupTitles[1].textContent = t("codeMath");
     if (groupTitles[2]) groupTitles[2].textContent = t("links");
     if (groupTitles[3]) groupTitles[3].textContent = t("table");
+    if (groupTitles[4]) groupTitles[4].textContent = t("latexSection");
   }
 
   const headingMainButtons = document.querySelectorAll(".heading-main");
@@ -518,6 +1239,7 @@ function applyLocaleToUI() {
 
   setText("#openTableBuilder", t("buildTable"));
   setText("#convertToTable", t("textToTable"));
+  setText("#openLatexCompat", t("latexCompatBtn"));
 
   editor.placeholder = t("placeholder");
 
@@ -564,6 +1286,9 @@ function applyLocaleToUI() {
   setLeadingLabelText(customLabels[1], t("customMathPreviewExpr"));
   customMathCancel.textContent = t("cancel");
   customMathSave.textContent = t("save");
+
+  setText("#latexCompatTitle", t("latexCompatTitle"));
+  if (latexCompatClose) latexCompatClose.textContent = t("latexCompatClose");
 }
 
 function setLanguage(nextLanguage) {
@@ -602,6 +1327,17 @@ measureLayer.style.fontFamily = '"JetBrains Mono", monospace';
 measureLayer.style.fontSize = "14px";
 measureLayer.style.lineHeight = "1.6";
 document.body.appendChild(measureLayer);
+
+const caretMeasureLayer = document.createElement("div");
+caretMeasureLayer.style.position = "absolute";
+caretMeasureLayer.style.visibility = "hidden";
+caretMeasureLayer.style.pointerEvents = "none";
+caretMeasureLayer.style.left = "-99999px";
+caretMeasureLayer.style.top = "0";
+caretMeasureLayer.style.whiteSpace = "pre-wrap";
+caretMeasureLayer.style.wordBreak = "break-word";
+caretMeasureLayer.style.boxSizing = "border-box";
+document.body.appendChild(caretMeasureLayer);
 
 // display: KaTeX渲染后的显示符号; label: 对话框标题; snippet: 直接插入或模板; fields: 有则弹框
 const mathKeys = [
@@ -1056,37 +1792,68 @@ function downloadText(content, extension, mimeType) {
   URL.revokeObjectURL(url);
 }
 
-function downloadPdf() {
+async function waitForPdfMathFonts() {
+  if (!document.fonts) return;
+
+  try {
+    await document.fonts.ready;
+  } catch (_err) {
+    // Ignore readiness failures and continue with best effort font loading.
+  }
+
+  if (typeof document.fonts.load !== "function") return;
+
+  const fontFaces = [
+    '1em "KaTeX_Main"',
+    '1em "KaTeX_Math"',
+    '1em "KaTeX_Size1"',
+    '1em "KaTeX_Size2"',
+    '1em "KaTeX_Size3"',
+    '1em "KaTeX_Size4"',
+  ];
+
+  await Promise.allSettled(fontFaces.map((font) => document.fonts.load(font)));
+}
+
+async function downloadPdf() {
   const container = document.createElement("div");
   container.className = "pdf-export";
-  container.style.width = "210mm";
-  container.style.padding = "12mm";
   container.style.background = "#fff";
   container.style.color = "#111827";
   container.style.fontFamily = '"Source Han Sans SC", sans-serif';
+  container.style.lineHeight = "1.6";
+  container.style.padding = "2cm";
   container.innerHTML = md.render(editor.value);
   container.querySelectorAll("pre code").forEach((el) => {
     window.hljs.highlightElement(el);
   });
   document.body.appendChild(container);
 
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
   const options = {
-    margin: [8, 8, 8, 8],
+    margin: 15,
     filename: `${makeSafeFileName()}.pdf`,
     image: { type: "jpeg", quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+    html2canvas: {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      windowHeight: container.scrollHeight,
+    },
     jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-    pagebreak: { mode: ["css", "legacy"] },
+    pagebreak: { mode: ["css", "avoid-all", "legacy"] },
   };
 
-  window
-    .html2pdf()
-    .set(options)
-    .from(container)
-    .save()
-    .finally(() => {
-      container.remove();
-    });
+  try {
+    await window
+      .html2pdf()
+      .set(options)
+      .from(container)
+      .save();
+  } finally {
+    container.remove();
+  }
 }
 
 function splitByMultiSpace(line) {
@@ -1306,6 +2073,16 @@ function renderPreview(lines) {
 
   renderLayer.innerHTML = htmlParts.join("");
 
+  lines.forEach((line, idx) => {
+    const lineErrors = findLatexErrors(line);
+    const row = renderLayer.querySelector(`.render-line[data-line="${idx + 1}"]`);
+    if (!row) return;
+    applyLatexCompatBadge(row, line);
+    if (!lineErrors.length) return;
+    row.classList.add("render-line-latex-error");
+    row.title = lineErrors[0];
+  });
+
   renderLayer.querySelectorAll("pre code").forEach((el) => {
     window.hljs.highlightElement(el);
   });
@@ -1313,10 +2090,15 @@ function renderPreview(lines) {
   // 首次排版后同步，再延迟一次用于字体/公式延迟布局
   requestAnimationFrame(() => {
     syncRenderLineHeights();
+    scheduleCaretRealignChecks(220);
     requestAnimationFrame(() => {
       syncRenderLineHeights();
+      scheduleCaretRealignChecks(220);
     });
-    setTimeout(syncRenderLineHeights, 80);
+    setTimeout(() => {
+      syncRenderLineHeights();
+      scheduleCaretRealignChecks(220);
+    }, 80);
   });
 }
 
@@ -1358,11 +2140,17 @@ function getMathModeAtCursor(text, cursor) {
 function setRenderMode(enabled) {
   isRenderEnabled = enabled;
   editorWrap.classList.toggle("render-on", enabled);
+  resetPreviewCaretOffset();
+  if (!enabled) {
+    stopCaretRealignChecks();
+  }
 
   if (enabled) {
-    setMathKeyboardOpen(false);
-    // 切换到渲染模式时，同步渲染层滚动位置
     renderLayer.scrollTop = editor.scrollTop;
+  } else {
+    clearAllRestoreTimers();
+    activeSuspendRange = null;
+    activeRenderCaretLine = -1;
   }
 
   refreshAll();
@@ -1371,11 +2159,6 @@ function setRenderMode(enabled) {
 function toggleMathKeyboard() {
   if (forceMathKeyboardOpen) {
     setMathKeyboardOpen(true);
-    return;
-  }
-
-  if (isRenderEnabled) {
-    setMathKeyboardOpen(false);
     return;
   }
 
@@ -1554,7 +2337,6 @@ function toggleLinePrefix(prefix) {
 
 function closeMathOnEnter(e) {
   if (e.key !== "Enter") return;
-  if (isRenderEnabled) return;
 
   let cursor = editor.selectionStart;
   const value = editor.value;
@@ -1639,6 +2421,48 @@ function refreshAll() {
   }
 
   lastValue = editor.value;
+}
+
+function openLatexCompatibilityDialog() {
+  if (!latexCompatDialog || !latexCompatSummary || !latexCompatList) return;
+
+  const issues = analyzeLatexCompatibility(editor.value);
+  latexCompatList.innerHTML = "";
+
+  const riskIssues = issues.filter((item) => item !== t("latexIssueEngineHint"));
+  latexCompatSummary.textContent = riskIssues.length
+    ? t("latexCompatSummaryIssues", { count: String(riskIssues.length) })
+    : t("latexCompatSummaryOk");
+
+  issues.forEach((message) => {
+    const li = document.createElement("li");
+    li.textContent = message;
+    latexCompatList.appendChild(li);
+  });
+
+  latexCompatDialog.showModal();
+}
+
+function setLatexHintEnabled(enabled) {
+  isLatexHintEnabled = !!enabled;
+  window.localStorage.setItem(LATEX_HINT_STORAGE_KEY, isLatexHintEnabled ? "1" : "0");
+  if (latexHintToggle) {
+    latexHintToggle.checked = isLatexHintEnabled;
+  }
+
+  if (!isRenderEnabled) {
+    return;
+  }
+
+  if (isLatexHintEnabled) {
+    renderPreview(editor.value.split("\n"));
+    if (activeSuspendRange) {
+      suspendRangeForCursor(editor.value.split("\n"));
+    }
+    return;
+  }
+
+  renderLayer.querySelectorAll(".latex-compat-badge").forEach((badge) => badge.remove());
 }
 
 function clearOnboardingFocus() {
@@ -1804,6 +2628,8 @@ function initializeDefaultState() {
 
   const savedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
   setLanguage(savedLocale === "en" ? "en" : "zh");
+  const savedHints = window.localStorage.getItem(LATEX_HINT_STORAGE_KEY);
+  setLatexHintEnabled(savedHints !== "0");
   initMathKeyboard();
 
   if (!shouldShowWelcome) {
@@ -1906,33 +2732,300 @@ function bindToolbarActions() {
 }
 
 editor.addEventListener("input", () => {
+  const lines = editor.value.split("\n");
+
+  if (isRenderEnabled) {
+    updateLineNumbers(lines);
+    suspendRangeForCursor(lines);
+    toggleMathKeyboard();
+    syncOverlayScroll();
+    lastValue = editor.value;
+    return;
+  }
+
   const prevLength = lastValue.length;
   refreshAll();
-  if (!isRenderEnabled && editor.value.length >= prevLength) {
+  if (editor.value.length >= prevLength) {
     detectCodeTrigger();
   }
 });
 
 editor.addEventListener("click", toggleMathKeyboard);
 editor.addEventListener("keyup", toggleMathKeyboard);
+editor.addEventListener("click", () => {
+  syncSuspendRangeFromCursor();
+});
+
+editor.addEventListener("keyup", () => {
+  syncSuspendRangeFromCursor();
+});
+
+editor.addEventListener("focus", () => {
+  syncSuspendRangeFromCursor();
+});
+
+editor.addEventListener("select", () => {
+  syncSuspendRangeFromCursor();
+});
+
+document.addEventListener("selectionchange", () => {
+  syncSuspendRangeFromCursor();
+});
+
 editor.addEventListener("blur", (e) => {
   const next = e.relatedTarget;
   // 如果焦点移到数学键盘、对话框或对话框内的元素，保持键盘显示
   if (next && (mathKeyboard.contains(next) || mathTemplateDialog.contains(next) || next.closest("dialog"))) {
     return;
   }
+
+  if (isRenderEnabled && activeSuspendRange) {
+    scheduleRestoreRange(activeSuspendRange);
+    activeSuspendRange = null;
+  }
+
+  activeRenderCaretLine = -1;
+  resetPreviewCaretOffset();
+  stopCaretRealignChecks();
+
   setMathKeyboardOpen(false);
 });
 
 editor.addEventListener("scroll", () => {
-  lineNumbers.scrollTop = editor.scrollTop;
-  guideLayer.scrollTop = editor.scrollTop;
+  if (isAdjustingEditorScroll) {
+    syncOverlayScroll();
+    return;
+  }
+
+  if (isRenderEnabled) {
+    syncOverlayScroll();
+    return;
+  }
+
+  if (!isRenderEnabled) {
+    renderLayer.scrollTop = editor.scrollTop;
+  }
+  syncOverlayScroll();
 });
 
 renderLayer.addEventListener("scroll", () => {
+  if (!isRenderEnabled) {
+    return;
+  }
+  if (isAdjustingEditorScroll) {
+    syncOverlayScroll();
+    return;
+  }
+  if (activeRenderCaretLine >= 0) {
+    alignEditorCaretToRenderedLine(activeRenderCaretLine);
+  } else {
+    resetPreviewCaretOffset();
+    isAdjustingEditorScroll = true;
+    editor.scrollTop = clampEditorScrollTop(renderLayer.scrollTop);
+    isAdjustingEditorScroll = false;
+  }
+  syncOverlayScroll();
+});
+
+let renderTouchStartY = null;
+
+function scrollVisibleLayerBy(deltaY) {
+  if (isRenderEnabled) {
+    const max = Math.max(0, renderLayer.scrollHeight - renderLayer.clientHeight);
+    const next = Math.max(0, Math.min(max, renderLayer.scrollTop + deltaY));
+    if (Math.abs(next - renderLayer.scrollTop) < 0.5) return;
+    renderLayer.scrollTop = next;
+    syncOverlayScroll();
+    return;
+  }
+
+  const next = clampEditorScrollTop(editor.scrollTop + deltaY);
+  if (Math.abs(next - editor.scrollTop) < 0.5) return;
+  isAdjustingEditorScroll = true;
+  editor.scrollTop = next;
+  isAdjustingEditorScroll = false;
+  syncOverlayScroll();
+}
+
+renderLayer.addEventListener("wheel", (e) => {
   if (!isRenderEnabled) return;
-  lineNumbers.scrollTop = renderLayer.scrollTop;
-  guideLayer.scrollTop = renderLayer.scrollTop;
+  scrollVisibleLayerBy(e.deltaY);
+  e.preventDefault();
+}, { passive: false });
+
+renderLayer.addEventListener("touchstart", (e) => {
+  if (!isRenderEnabled) return;
+  if (!e.touches || !e.touches.length) return;
+  renderTouchStartY = e.touches[0].clientY;
+}, { passive: true });
+
+renderLayer.addEventListener("touchmove", (e) => {
+  if (!isRenderEnabled) return;
+  if (!e.touches || !e.touches.length || renderTouchStartY === null) return;
+
+  const currentY = e.touches[0].clientY;
+  const deltaY = renderTouchStartY - currentY;
+  renderTouchStartY = currentY;
+
+  scrollVisibleLayerBy(deltaY);
+  e.preventDefault();
+}, { passive: false });
+
+renderLayer.addEventListener("touchend", () => {
+  renderTouchStartY = null;
+});
+
+renderLayer.addEventListener("touchcancel", () => {
+  renderTouchStartY = null;
+});
+
+// --- Render-mode drag selection ---
+// Flag to suppress suspend/restore during drag so rendering stays frozen.
+let isRenderDragging = false;
+let renderDragState = null; // { startOffset }
+// Suppress the click event immediately following a drag release
+let suppressNextRenderLayerClick = false;
+
+// Find the closest render-line index to a given clientY using bounding-box search.
+// Unlike elementFromPoint, this works even when the pointer is over child nodes
+// (KaTeX elements, inline code, etc.) or in the gap between lines.
+function getRenderLineIdxAtY(clientY) {
+  const rows = Array.from(renderLayer.querySelectorAll(".render-line"));
+  if (!rows.length) return null;
+
+  let bestRow = null;
+  let bestDist = Infinity;
+
+  for (const row of rows) {
+    const rect = row.getBoundingClientRect();
+    if (clientY >= rect.top && clientY <= rect.bottom) {
+      // Pointer is directly inside this row — exact hit
+      const lineNum = Number(row.getAttribute("data-line") || "1");
+      return Math.max(0, lineNum - 1);
+    }
+    // Distance to nearest edge of this row
+    const dist = clientY < rect.top ? rect.top - clientY : clientY - rect.bottom;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestRow = row;
+    }
+  }
+
+  if (!bestRow) return null;
+  const lineNum = Number(bestRow.getAttribute("data-line") || "1");
+  return Math.max(0, lineNum - 1);
+}
+
+function getTextareaOffsetAtPoint(lineIdx, clientX) {
+  const lines = editor.value.split("\n");
+  const safeLine = Math.max(0, Math.min(lineIdx, lines.length - 1));
+  const lineStart = getLineStartOffset(safeLine);
+  const column = getLineColumnFromClientX(safeLine, clientX);
+  return lineStart + column;
+}
+
+function clearRenderDragHighlight() {
+  renderLayer.querySelectorAll(".render-line.is-drag-selected").forEach((el) => {
+    el.classList.remove("is-drag-selected");
+  });
+}
+
+function applyRenderDragHighlight(startOffset, endOffset) {
+  clearRenderDragHighlight();
+  const value = editor.value;
+  const startLine = value.substring(0, startOffset).split("\n").length;
+  const endLine = value.substring(0, endOffset).split("\n").length;
+  const fromLine = Math.min(startLine, endLine);
+  const toLine = Math.max(startLine, endLine);
+  renderLayer.querySelectorAll(".render-line").forEach((el) => {
+    const ln = Number(el.getAttribute("data-line") || "0");
+    if (ln >= fromLine && ln <= toLine) {
+      el.classList.add("is-drag-selected");
+    }
+  });
+}
+
+renderLayer.addEventListener("mousedown", (e) => {
+  if (!isRenderEnabled) return;
+  // Only handle primary button
+  if (e.button !== 0) return;
+  const lineIdx = getRenderLineIdxAtY(e.clientY);
+  if (lineIdx === null) return;
+  const startOffset = getTextareaOffsetAtPoint(lineIdx, e.clientX);
+  isRenderDragging = true;
+  renderDragState = { startOffset, lastEndOffset: startOffset };
+  e.preventDefault(); // Prevent browser text selection on renderLayer DOM
+});
+
+document.addEventListener("mousemove", (e) => {
+  if (!renderDragState || !isRenderEnabled) return;
+  if (!(e.buttons & 1)) {
+    // Button released outside window
+    clearRenderDragHighlight();
+    isRenderDragging = false;
+    renderDragState = null;
+    return;
+  }
+
+  const lineIdx = getRenderLineIdxAtY(e.clientY);
+  if (lineIdx === null) return;
+  const endOffset = getTextareaOffsetAtPoint(lineIdx, e.clientX);
+
+  // Skip if no change (avoids unnecessary DOM thrash)
+  if (endOffset === renderDragState.lastEndOffset) return;
+  renderDragState.lastEndOffset = endOffset;
+
+  const selStart = Math.min(renderDragState.startOffset, endOffset);
+  const selEnd = Math.max(renderDragState.startOffset, endOffset);
+
+  applyRenderDragHighlight(selStart, selEnd);
+
+  // Update textarea selection directly — isRenderDragging suppresses the
+  // select/syncSuspendRangeFromCursor path so rendering won't flicker.
+  editor.setSelectionRange(selStart, selEnd);
+});
+
+document.addEventListener("mouseup", (e) => {
+  if (!renderDragState || !isRenderEnabled) return;
+  const { startOffset, lastEndOffset } = renderDragState;
+  const wasDrag = startOffset !== lastEndOffset;
+
+  clearRenderDragHighlight();
+  isRenderDragging = false;
+  renderDragState = null;
+
+  if (wasDrag) {
+    const selStart = Math.min(startOffset, lastEndOffset);
+    const selEnd = Math.max(startOffset, lastEndOffset);
+    editor.focus();
+    editor.setSelectionRange(selStart, selEnd);
+    // Suppress the click event that might be generated on mouseup
+    suppressNextRenderLayerClick = true;
+  }
+});
+
+renderLayer.addEventListener("click", (e) => {
+  if (!isRenderEnabled) return;
+  
+  // Suppress click that immediately follows a drag release
+  if (suppressNextRenderLayerClick) {
+    suppressNextRenderLayerClick = false;
+    return;
+  }
+  
+  // Ignore synthetic clicks (e.detail === 0)
+  if (e.detail === 0) return;
+
+  const row = e.target.closest(".render-line");
+  if (!row) return;
+
+  const line = Number(row.getAttribute("data-line") || "1");
+  const lineIdx = Math.max(0, line - 1);
+
+  activeRenderCaretLine = lineIdx;
+  setCursorToLineColumnByClientX(lineIdx, e.clientX);
+  syncSuspendRangeFromCursor();
+  toggleMathKeyboard(); // Show math keyboard if cursor is in math mode
 });
 
 editor.addEventListener("keydown", (e) => {
@@ -2008,6 +3101,18 @@ document.getElementById("convertToTable").addEventListener("click", () => {
 
   refreshAll();
 });
+
+if (openLatexCompat) {
+  openLatexCompat.addEventListener("click", () => {
+    openLatexCompatibilityDialog();
+  });
+}
+
+if (latexCompatClose) {
+  latexCompatClose.addEventListener("click", () => {
+    latexCompatDialog.close();
+  });
+}
 
 languageCancel.addEventListener("click", () => {
   pendingCodeTrigger = null;
@@ -2138,6 +3243,12 @@ lineGuideToggle.addEventListener("change", () => {
   document.body.classList.toggle("show-line-guides", lineGuideToggle.checked);
   refreshAll();
 });
+
+if (latexHintToggle) {
+  latexHintToggle.addEventListener("change", () => {
+    setLatexHintEnabled(latexHintToggle.checked);
+  });
+}
 
 renderToggle.addEventListener("change", () => {
   setRenderMode(renderToggle.checked);

@@ -569,34 +569,46 @@ function buildLatexCompatMeta(line) {
   if (!hasLatexContent(line)) return null;
 
   const ok = [];
-  const failed = [];
+  const failed = []; // { engine, reason }
 
   if (testKatexCompat(line)) {
     ok.push("KaTeX");
   } else {
-    failed.push("KaTeX");
+    failed.push({ engine: "KaTeX", reason: "Unsupported LaTeX syntax or rendering error" });
   }
 
   if (testMathJaxCompat(line)) {
     ok.push("MathJax");
   } else {
-    failed.push("MathJax");
+    failed.push({ engine: "MathJax", reason: "Unsupported LaTeX syntax or rendering error" });
   }
 
   if (testGitHubMarkdownCompat(line)) {
     ok.push("GitHub");
   } else {
-    failed.push("GitHub");
+    // Detect specific failure reason for GitHub
+    let githubReason = "Unsupported syntax";
+    if (/\\\(|\\\)|\\\[|\\\]/.test(line)) {
+      githubReason = "GitHub does not support \\(...\\) or \\[...\\] delimiters";
+    } else if (/\\newcommand|\\renewcommand|\\providecommand|\\def\s*\\|\\gdef/.test(line)) {
+      githubReason = "GitHub does not persist \\newcommand across expressions";
+    } else if (/\$\$(.*\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|smallmatrix).*?)\$\$/s.test(line)) {
+      githubReason = "GitHub renders block matrices compressed into one line";
+    } else {
+      githubReason = "Unsupported LaTeX syntax";
+    }
+    failed.push({ engine: "GitHub", reason: githubReason });
   }
 
   if (testMarkdownItCompat(line)) {
     ok.push("markdown-it");
   } else {
-    failed.push("markdown-it");
+    failed.push({ engine: "markdown-it", reason: "Unsupported LaTeX syntax or rendering error" });
   }
 
   return {
     ok,
+    failed,
     risky: ok.length === 0,
   };
 }
@@ -696,6 +708,12 @@ function testGitHubMarkdownCompat(line) {
     // Pipe character inside inline math breaks GitHub table parsing
     if (!isBlock && expr.includes("|")) return false;
 
+    // Matrices inside any math render poorly on GitHub
+    // Block matrices get compressed into one line (GitHub limitation)
+    if (isBlock && /\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|smallmatrix)/.test(expr)) {
+      return false;
+    }
+
     // Matrices inside inline $...$ render poorly and are unsupported in practice
     if (!isBlock && /\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|smallmatrix)/.test(expr)) {
       return false;
@@ -727,6 +745,41 @@ function testMarkdownItCompat(line) {
   return exprs.every(({ expr, isBlock }) => tryKatexRender(expr, isBlock));
 }
 
+function showLatexCompatTooltip(badge) {
+  const tooltip = document.getElementById("latexCompatTooltip");
+  const content = document.getElementById("latexCompatTooltipContent");
+  if (!tooltip || !content) return;
+
+  const tooltipText = badge.getAttribute("data-tooltip");
+  if (!tooltipText) return;
+
+  content.textContent = tooltipText;
+  tooltip.setAttribute("aria-hidden", "false");
+
+  // Position tooltip above badge, centered
+  const rect = badge.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+  const top = rect.top - tooltipRect.height - 8;
+
+  tooltip.style.left = `${Math.max(8, left)}px`;
+  tooltip.style.top = `${Math.max(8, top)}px`;
+
+  // Position arrow
+  const arrow = tooltip.querySelector(".latex-compat-tooltip-arrow");
+  if (arrow) {
+    arrow.style.left = `${rect.left + rect.width / 2 - left - 6}px`;
+    arrow.style.bottom = "-12px";
+  }
+}
+
+function hideLatexCompatTooltip() {
+  const tooltip = document.getElementById("latexCompatTooltip");
+  if (tooltip) {
+    tooltip.setAttribute("aria-hidden", "true");
+  }
+}
+
 function applyLatexCompatBadge(row, line) {
   if (!row) return;
   row.querySelectorAll(".latex-compat-badge").forEach((badge) => badge.remove());
@@ -738,6 +791,26 @@ function applyLatexCompatBadge(row, line) {
   const badge = document.createElement("span");
   badge.className = `latex-compat-badge${meta.risky ? " is-risk" : ""}`;
   badge.textContent = meta.risky ? "Compat: risk" : `Compat: ${meta.ok.join(" / ")}`;
+  
+  // Store tooltip info as data attribute
+  let tooltipText = "";
+  if (meta.risky) {
+    const reasons = meta.failed.map((f) => `${f.engine}: ${f.reason}`).join("\n");
+    tooltipText = `Cannot render on any engine:\n${reasons}`;
+  } else if (meta.failed && meta.failed.length > 0) {
+    const reasons = meta.failed.map((f) => `${f.engine}: ${f.reason}`).join("\n");
+    tooltipText = `Works on: ${meta.ok.join(", ")}\n\nDoes not work on:\n${reasons}`;
+  } else if (meta.ok.length > 0) {
+    tooltipText = `Compatible with: ${meta.ok.join(", ")}`;
+  }
+  
+  if (tooltipText) {
+    badge.setAttribute("data-tooltip", tooltipText);
+    badge.style.cursor = "pointer";
+    badge.addEventListener("mouseover", () => showLatexCompatTooltip(badge));
+    badge.addEventListener("mouseleave", hideLatexCompatTooltip);
+  }
+  
   row.appendChild(badge);
 }
 
@@ -3026,6 +3099,17 @@ renderLayer.addEventListener("click", (e) => {
   setCursorToLineColumnByClientX(lineIdx, e.clientX);
   syncSuspendRangeFromCursor();
   toggleMathKeyboard(); // Show math keyboard if cursor is in math mode
+});
+
+// Hide latex compat tooltip when clicking outside
+document.addEventListener("click", (e) => {
+  const tooltip = document.getElementById("latexCompatTooltip");
+  if (tooltip && !tooltip.contains(e.target)) {
+    const badge = e.target.closest(".latex-compat-badge");
+    if (!badge) {
+      hideLatexCompatTooltip();
+    }
+  }
 });
 
 editor.addEventListener("keydown", (e) => {

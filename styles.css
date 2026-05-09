@@ -658,6 +658,12 @@ body.math-open .editor-panel {
   width: 100%;
 }
 
+.render-layer img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
 .render-line.is-suspended {
   background: rgba(226, 232, 240, 0.36);
   border-radius: 6px;

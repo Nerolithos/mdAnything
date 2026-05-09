@@ -823,6 +823,11 @@ function rangeKey(range) {
   return `${range.start}:${range.end}`;
 }
 
+function rangesOverlap(a, b) {
+  if (!a || !b) return false;
+  return a.start <= b.end && b.start <= a.end;
+}
+
 function clearRestoreTimerForRange(range) {
   if (!range) return;
   const key = rangeKey(range);
@@ -840,6 +845,11 @@ function clearAllRestoreTimers() {
 }
 
 function resolveCursorRange(lines) {
+  const selectionRange = resolveMultiLineSelectionRange(lines);
+  if (selectionRange) {
+    return selectionRange;
+  }
+
   const lineIdx = getCurrentCursorLineIndex();
   const fenceRange = getCodeFenceRange(lines, lineIdx);
   if (fenceRange.inFence) {
@@ -848,10 +858,41 @@ function resolveCursorRange(lines) {
   return isLineInsideBlockMath(lines, lineIdx);
 }
 
+function getLineIndexAtOffset(lines, offset) {
+  const safeOffset = Math.max(0, Math.min(offset, editor.value.length));
+  let acc = 0;
+  for (let i = 0; i < lines.length; i += 1) {
+    const lineLen = lines[i].length;
+    const lineEnd = acc + lineLen;
+    if (safeOffset <= lineEnd) {
+      return i;
+    }
+    acc = lineEnd + 1;
+  }
+  return Math.max(0, lines.length - 1);
+}
+
+function resolveMultiLineSelectionRange(lines) {
+  const selStart = editor.selectionStart;
+  const selEnd = editor.selectionEnd;
+  if (selStart === selEnd) return null;
+
+  const startOffset = Math.min(selStart, selEnd);
+  const endOffset = Math.max(selStart, selEnd);
+  const startLine = getLineIndexAtOffset(lines, startOffset);
+  // Use endOffset - 1 so a selection ending at the next line start does not
+  // incorrectly include that next line.
+  const endProbeOffset = Math.max(startOffset, endOffset - 1);
+  const endLine = getLineIndexAtOffset(lines, endProbeOffset);
+
+  if (endLine <= startLine) return null;
+  return { start: startLine, end: endLine, inBlock: false, isSelection: true };
+}
+
 function restoreRangeWithCurrentContent(range) {
   if (!range || !isRenderEnabled) return;
   const lines = editor.value.split("\n");
-  if (isFenceOrTableContext(lines, range.start) || isFenceOrTableContext(lines, range.end)) {
+  if (rangeHasFenceOrTableContext(lines, range.start, range.end)) {
     renderPreview(lines);
     ensureCaretAlignmentNow();
     return;
@@ -860,12 +901,25 @@ function restoreRangeWithCurrentContent(range) {
   ensureCaretAlignmentNow();
 }
 
+function rangeHasFenceOrTableContext(lines, startLine, endLine) {
+  for (let i = startLine; i <= endLine; i += 1) {
+    if (isFenceOrTableContext(lines, i)) return true;
+  }
+  return false;
+}
+
 function scheduleRestoreRange(range) {
   if (!range) return;
   clearRestoreTimerForRange(range);
   const timerId = window.setTimeout(() => {
     if (isRenderDragging) {
       // Re-schedule: keep deferring until drag ends
+      scheduleRestoreRange(range);
+      return;
+    }
+    if (activeSuspendRange && rangesOverlap(activeSuspendRange, range)) {
+      // Current suspended range still covers this area (common during Ctrl+A / drag);
+      // defer restore to avoid random partial re-render while selection is active.
       scheduleRestoreRange(range);
       return;
     }
@@ -888,7 +942,7 @@ function suspendRangeForCursor(lines) {
     }
     activeSuspendRange = { ...range };
   }
-  markRenderRangeSuspended(range.start, range.end, lines);
+  markRenderRangeSuspended(range, lines);
   alignEditorCaretToRenderedLine(activeRenderCaretLine);
 }
 
@@ -899,7 +953,10 @@ function syncSuspendRangeFromCursor() {
   suspendRangeForCursor(editor.value.split("\n"));
 }
 
-function markRenderRangeSuspended(startLine, endLine, lines) {
+function markRenderRangeSuspended(range, lines) {
+  const startLine = range.start;
+  const endLine = range.end;
+
   for (let i = startLine; i <= endLine; i += 1) {
     const row = renderLayer.querySelector(`.render-line[data-line="${i + 1}"]`);
     if (!row) continue;
@@ -1895,8 +1952,15 @@ async function downloadPdf() {
   container.style.color = "#111827";
   container.style.fontFamily = '"Source Han Sans SC", sans-serif';
   container.style.lineHeight = "1.6";
+  container.style.boxSizing = "border-box";
+  container.style.width = "180mm";
   container.style.padding = "2cm";
   container.innerHTML = md.render(editor.value);
+  container.querySelectorAll("img").forEach((img) => {
+    img.style.maxWidth = "100%";
+    img.style.height = "auto";
+    img.style.display = "block";
+  });
   container.querySelectorAll("pre code").forEach((el) => {
     window.hljs.highlightElement(el);
   });
@@ -2810,6 +2874,9 @@ editor.addEventListener("input", () => {
   if (isRenderEnabled) {
     updateLineNumbers(lines);
     suspendRangeForCursor(lines);
+    // Re-apply measured render row heights after line-number nodes are rebuilt.
+    // Without this, line numbers briefly fall back to default height while editing.
+    syncRenderLineHeights();
     toggleMathKeyboard();
     syncOverlayScroll();
     lastValue = editor.value;

@@ -865,7 +865,7 @@ function showFormatSpaceTooltip(badge) {
   }
 
   const snippets = buildFormatSpaceErrorOnlyContent(rawLine, ranges);
-  content.innerHTML = `<div class="format-space-tooltip-title">Unexpected space before closing marker</div><div class="format-space-tooltip-line">${snippets}</div>`;
+  content.innerHTML = `<div class="format-space-tooltip-title">Unexpected space around delimiter</div><div class="format-space-tooltip-line">${snippets}</div>`;
   tooltip.setAttribute("aria-hidden", "false");
 
   const rect = badge.getBoundingClientRect();
@@ -1072,12 +1072,63 @@ function collectUnexpectedSpaceRangesForToken(text, token, options = {}) {
   return hits;
 }
 
+function collectUnexpectedOpenSpaceRangesForToken(text, token, options = {}) {
+  const tokenLen = token.length;
+  const hits = [];
+
+  function findNextCloser(startIndex) {
+    for (let j = startIndex; j <= text.length - tokenLen; j += 1) {
+      if (text.slice(j, j + tokenLen) !== token) continue;
+      if (isEscapedAt(text, j)) continue;
+      if (isInRanges(j, options.skipRanges || [])) continue;
+
+      if (options.excludeRepeated) {
+        const prev = text[j - 1] || "";
+        const next = text[j + tokenLen] || "";
+        if (prev === token || next === token) continue;
+      }
+
+      const prevChar = text[j - 1] || "";
+      if (isWhitespaceChar(prevChar)) continue;
+      return j;
+    }
+    return -1;
+  }
+
+  for (let i = 0; i <= text.length - tokenLen; i += 1) {
+    if (text.slice(i, i + tokenLen) !== token) continue;
+    if (isEscapedAt(text, i)) continue;
+    if (isInRanges(i, options.skipRanges || [])) continue;
+
+    if (options.excludeRepeated) {
+      const prev = text[i - 1] || "";
+      const next = text[i + tokenLen] || "";
+      if (prev === token || next === token) continue;
+    }
+
+    const nextChar = text[i + tokenLen] || "";
+    if (!isWhitespaceChar(nextChar)) continue;
+
+    const closerIdx = findNextCloser(i + tokenLen);
+    if (closerIdx < 0) continue;
+
+    const innerText = text.slice(i + tokenLen, closerIdx);
+    if (!/\S/.test(innerText)) continue;
+
+    hits.push([i, closerIdx + tokenLen]);
+    i = closerIdx + tokenLen - 1;
+  }
+
+  return hits;
+}
+
 function collectUnexpectedSpaceHighlightRanges(line) {
   const text = stripInlineCodeForLint(line);
   if (!text) return [];
 
   const ranges = [];
   let openInlineMath = -1;
+  let openInlineMathHasLeadingSpace = false;
   for (let i = 0; i < text.length; i += 1) {
     if (text[i] !== "$") continue;
     if (isEscapedAt(text, i)) continue;
@@ -1088,13 +1139,15 @@ function collectUnexpectedSpaceHighlightRanges(line) {
 
     if (openInlineMath < 0) {
       openInlineMath = i;
+      openInlineMathHasLeadingSpace = /\s/.test(text[i + 1] || "");
       continue;
     }
 
-    if (i > 0 && /\s/.test(text[i - 1])) {
+    if (openInlineMathHasLeadingSpace || (i > 0 && /\s/.test(text[i - 1]))) {
       ranges.push([openInlineMath, i + 1]);
     }
     openInlineMath = -1;
+    openInlineMathHasLeadingSpace = false;
   }
 
   const inlineMath = collectInlineMathRangesAndIssues(text);
@@ -1107,6 +1160,12 @@ function collectUnexpectedSpaceHighlightRanges(line) {
   ];
 
   checks.forEach((item) => {
+    const openerHits = collectUnexpectedOpenSpaceRangesForToken(text, item.token, {
+      excludeRepeated: item.excludeRepeated,
+      skipRanges: inlineMath.ranges,
+    });
+    openerHits.forEach((range) => ranges.push(range));
+
     const tokenHits = collectUnexpectedSpaceRangesForToken(text, item.token, {
       excludeRepeated: item.excludeRepeated,
       skipRanges: inlineMath.ranges,
@@ -2751,7 +2810,14 @@ function renderSingleLine(line) {
   if (line.trim().length === 0) {
     return "&nbsp;";
   }
-  return md.render(line).trim();
+  return md.render(normalizeMathDelimiters(line)).trim();
+}
+
+function normalizeMathDelimiters(text) {
+  const source = String(text || "");
+  return source
+    .replace(/(?<!\\)\\\(([^]*?)(?<!\\)\\\)/g, (m, expr) => `$${expr}$`)
+    .replace(/(?<!\\)\\\[([^]*?)(?<!\\)\\\]/g, (m, expr) => `$$${expr}$$`);
 }
 
 function resolveHighlightLanguage(language) {
@@ -2860,7 +2926,7 @@ function renderPreview(lines) {
         end += 1;
       }
 
-      const tableBlock = lines.slice(idx, end).join("\n");
+      const tableBlock = normalizeMathDelimiters(lines.slice(idx, end).join("\n"));
       const tableHtml = md.render(tableBlock).trim();
       htmlParts.push(`<div class="render-line" data-line="${idx + 1}">${tableHtml}</div>`);
 

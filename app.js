@@ -58,6 +58,7 @@ const onboardingToolbarTarget = document.querySelector('[data-onboarding-target=
 const compatPass = document.getElementById("compatPass");
 const compatPartial = document.getElementById("compatPartial");
 const compatRisk = document.getElementById("compatRisk");
+const refreshRenderBtn = document.getElementById("refreshRenderBtn");
 const renderCaret = document.createElement("span");
 renderCaret.className = "render-caret";
 
@@ -849,6 +850,298 @@ function hideLatexCompatTooltip() {
   }
 }
 
+function showFormatSpaceTooltip(badge) {
+  const tooltip = document.getElementById("formatSpaceTooltip");
+  const content = document.getElementById("formatSpaceTooltipContent");
+  if (!tooltip || !content) return;
+
+  const rawLine = badge.getAttribute("data-source-line") || "";
+  const serializedRanges = badge.getAttribute("data-hit-ranges") || "[]";
+  let ranges = [];
+  try {
+    ranges = JSON.parse(serializedRanges);
+  } catch (_) {
+    ranges = [];
+  }
+
+  const snippets = buildFormatSpaceErrorOnlyContent(rawLine, ranges);
+  content.innerHTML = `<div class="format-space-tooltip-title">Unexpected space before closing marker</div><div class="format-space-tooltip-line">${snippets}</div>`;
+  tooltip.setAttribute("aria-hidden", "false");
+
+  const rect = badge.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const margin = 8;
+  const maxLeft = window.innerWidth - tooltipRect.width - margin;
+  const left = Math.min(Math.max(margin, rect.left + rect.width / 2 - tooltipRect.width / 2), Math.max(margin, maxLeft));
+  const top = Math.max(margin, rect.top - tooltipRect.height - 8);
+
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+function hideFormatSpaceTooltip() {
+  const tooltip = document.getElementById("formatSpaceTooltip");
+  if (tooltip) {
+    tooltip.setAttribute("aria-hidden", "true");
+  }
+}
+
+function stripInlineCodeForLint(line) {
+  return String(line || "").replace(/`[^`]*`/g, (segment) => " ".repeat(segment.length));
+}
+
+function isWhitespaceChar(char) {
+  return !char || /\s/.test(char);
+}
+
+function isLikelyClosingBoundaryChar(char) {
+  if (!char) return true;
+  return /[\s.,;:!?)}\]>",'"，。！？；：、）】》]/.test(char);
+}
+
+function isEscapedAt(text, index) {
+  let slashCount = 0;
+  for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) {
+    slashCount += 1;
+  }
+  return slashCount % 2 === 1;
+}
+
+function collectInlineMathRangesAndIssues(text) {
+  const ranges = [];
+  let hasUnexpectedSpace = false;
+  let openIndex = -1;
+
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== "$") continue;
+    if (isEscapedAt(text, i)) continue;
+
+    if (text[i + 1] === "$") {
+      i += 1;
+      continue;
+    }
+
+    if (openIndex < 0) {
+      openIndex = i;
+      continue;
+    }
+
+    ranges.push([openIndex, i]);
+    if (i > 0 && /\s/.test(text[i - 1])) {
+      hasUnexpectedSpace = true;
+    }
+    openIndex = -1;
+  }
+
+  return { ranges, hasUnexpectedSpace };
+}
+
+function isInRanges(index, ranges) {
+  for (let i = 0; i < ranges.length; i += 1) {
+    const [start, end] = ranges[i];
+    if (index >= start && index <= end) return true;
+  }
+  return false;
+}
+
+function mergeHighlightRanges(ranges, textLength) {
+  if (!ranges.length) return [];
+  const normalized = ranges
+    .map(([start, end]) => [
+      Math.max(0, Math.min(start, textLength)),
+      Math.max(0, Math.min(end, textLength)),
+    ])
+    .filter(([start, end]) => end > start)
+    .sort((a, b) => a[0] - b[0]);
+
+  if (!normalized.length) return [];
+
+  const merged = [normalized[0]];
+  for (let i = 1; i < normalized.length; i += 1) {
+    const [start, end] = normalized[i];
+    const last = merged[merged.length - 1];
+    if (start <= last[1]) {
+      last[1] = Math.max(last[1], end);
+    } else {
+      merged.push([start, end]);
+    }
+  }
+  return merged;
+}
+
+function buildFormatSpaceErrorOnlyContent(line, ranges) {
+  const source = String(line || "");
+  const safeRanges = mergeHighlightRanges(ranges, source.length);
+  if (!safeRanges.length) return "";
+
+  return safeRanges
+    .map(([start, end]) => `<div class="format-space-tooltip-snippet"><span class="format-space-hit">${md.utils.escapeHtml(source.slice(start, end))}</span></div>`)
+    .join("");
+}
+
+function hasUnexpectedSpaceBeforeClosingToken(text, token, options = {}) {
+  const stack = [];
+  const tokenLen = token.length;
+
+  for (let i = 0; i <= text.length - tokenLen; i += 1) {
+    if (text.slice(i, i + tokenLen) !== token) continue;
+    if (isEscapedAt(text, i)) continue;
+    if (isInRanges(i, options.skipRanges || [])) continue;
+
+    if (options.excludeRepeated) {
+      const prev = text[i - 1] || "";
+      const next = text[i + tokenLen] || "";
+      if (prev === token || next === token) continue;
+    }
+
+    const prevChar = text[i - 1] || "";
+    const nextChar = text[i + tokenLen] || "";
+    const prevIsSpace = isWhitespaceChar(prevChar);
+    const nextIsSpace = isWhitespaceChar(nextChar);
+    const canOpen = !nextIsSpace;
+    const canClose = !prevIsSpace;
+
+    // If there is an unmatched opener, prefer consuming an ambiguous delimiter as closer.
+    const useAsCloser = canClose && stack.length > 0;
+
+    if (prevIsSpace && stack.length > 0 && isLikelyClosingBoundaryChar(nextChar)) {
+      const openerIndex = stack[stack.length - 1];
+      const innerText = text.slice(openerIndex + tokenLen, i);
+      if (/\S/.test(innerText)) {
+        return true;
+      }
+    }
+
+    if (useAsCloser) {
+      stack.pop();
+      continue;
+    }
+
+    if (canOpen) {
+      stack.push(i);
+      continue;
+    }
+  }
+
+  return false;
+}
+
+function collectUnexpectedSpaceRangesForToken(text, token, options = {}) {
+  const stack = [];
+  const tokenLen = token.length;
+  const hits = [];
+
+  for (let i = 0; i <= text.length - tokenLen; i += 1) {
+    if (text.slice(i, i + tokenLen) !== token) continue;
+    if (isEscapedAt(text, i)) continue;
+    if (isInRanges(i, options.skipRanges || [])) continue;
+
+    if (options.excludeRepeated) {
+      const prev = text[i - 1] || "";
+      const next = text[i + tokenLen] || "";
+      if (prev === token || next === token) continue;
+    }
+
+    const prevChar = text[i - 1] || "";
+    const nextChar = text[i + tokenLen] || "";
+    const prevIsSpace = isWhitespaceChar(prevChar);
+    const nextIsSpace = isWhitespaceChar(nextChar);
+    const canOpen = !nextIsSpace;
+    const canClose = !prevIsSpace;
+    const useAsCloser = canClose && stack.length > 0;
+
+    if (prevIsSpace && stack.length > 0 && isLikelyClosingBoundaryChar(nextChar)) {
+      const openerIndex = stack[stack.length - 1];
+      const innerText = text.slice(openerIndex + tokenLen, i);
+      if (/\S/.test(innerText)) {
+        hits.push([openerIndex, i + tokenLen]);
+      }
+    }
+
+    if (useAsCloser) {
+      stack.pop();
+      continue;
+    }
+
+    if (canOpen) {
+      stack.push(i);
+      continue;
+    }
+  }
+
+  return hits;
+}
+
+function collectUnexpectedSpaceHighlightRanges(line) {
+  const text = stripInlineCodeForLint(line);
+  if (!text) return [];
+
+  const ranges = [];
+  let openInlineMath = -1;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== "$") continue;
+    if (isEscapedAt(text, i)) continue;
+    if (text[i + 1] === "$") {
+      i += 1;
+      continue;
+    }
+
+    if (openInlineMath < 0) {
+      openInlineMath = i;
+      continue;
+    }
+
+    if (i > 0 && /\s/.test(text[i - 1])) {
+      ranges.push([openInlineMath, i + 1]);
+    }
+    openInlineMath = -1;
+  }
+
+  const inlineMath = collectInlineMathRangesAndIssues(text);
+  const checks = [
+    { token: "**" },
+    { token: "__" },
+    { token: "~~" },
+    { token: "*", excludeRepeated: true },
+    { token: "_", excludeRepeated: true },
+  ];
+
+  checks.forEach((item) => {
+    const tokenHits = collectUnexpectedSpaceRangesForToken(text, item.token, {
+      excludeRepeated: item.excludeRepeated,
+      skipRanges: inlineMath.ranges,
+    });
+    tokenHits.forEach((range) => ranges.push(range));
+  });
+
+  return mergeHighlightRanges(ranges, text.length);
+}
+
+function hasUnexpectedSpaceBeforeClosingDelimiter(line) {
+  return collectUnexpectedSpaceHighlightRanges(line).length > 0;
+}
+
+function applyFormatSpaceWarningBadge(row, line, options = {}) {
+  if (!row) return;
+  row.querySelectorAll(".format-space-warning-badge").forEach((badge) => badge.remove());
+
+  if (options.suppress) return;
+  const hitRanges = collectUnexpectedSpaceHighlightRanges(line);
+  if (!hitRanges.length) return;
+
+  const badge = document.createElement("span");
+  badge.className = "format-space-warning-badge";
+  badge.textContent = "Unexpected space";
+  badge.setAttribute("data-source-line", String(line || ""));
+  badge.setAttribute("data-hit-ranges", JSON.stringify(hitRanges));
+  badge.addEventListener("mouseover", () => showFormatSpaceTooltip(badge));
+  badge.addEventListener("mouseleave", hideFormatSpaceTooltip);
+  if (row.querySelector(".latex-compat-badge")) {
+    badge.style.bottom = "20px";
+  }
+  row.appendChild(badge);
+}
+
 function applyLatexCompatBadge(row, line) {
   if (!row) return;
   row.querySelectorAll(".latex-compat-badge").forEach((badge) => badge.remove());
@@ -857,13 +1150,39 @@ function applyLatexCompatBadge(row, line) {
   const meta = buildLatexCompatMeta(line);
   if (!meta) return;
 
+  const totalRenderers = window.LatexCompatModule
+    ? window.LatexCompatModule.getRendererNames().length
+    : meta.ok.length + (meta.failed ? meta.failed.length : 0);
+
+  function summarizeNames(items, maxItems = 3) {
+    const names = (items || []).slice(0, maxItems);
+    const extraCount = Math.max(0, (items || []).length - names.length);
+    return `${names.join(", ")}${extraCount ? ` +${extraCount}` : ""}`;
+  }
+
+  function simplifyReason(reason) {
+    const text = String(reason || "");
+    const splitIndex = text.indexOf(": ");
+    const compact = splitIndex >= 0 ? text.slice(splitIndex + 2) : text;
+    return compact
+      .replace("KaTeX parser rejected this expression", "parser rejected")
+      .replace("may rely on MathJax-only syntax; verify on target", "needs target verification")
+      .replace("pipe in inline math can break markdown table parsing", "inline pipe may break tables")
+      .replace("macro definitions are not reliably persisted across expressions", "macro persistence is unreliable")
+      .replace("matrix environments should be block math on GitHub", "matrix should use block math")
+      .replace("matrix blocks may render with layout differences", "matrix layout may differ")
+      .replace("delimiter support depends on extensions/config", "delimiter depends on config")
+      .replace("delimiter ", "")
+      .replace(" is not supported", " unsupported");
+  }
+
   let badgeText = "All Passed";
   if (meta.risky) {
     badgeText = "risk";
   } else if (meta.failed && meta.failed.length > 0) {
-    const exceptionNames = meta.failed.slice(0, 2).map((item) => item.engine);
-    const extraCount = Math.max(0, meta.failed.length - exceptionNames.length);
-    badgeText = `Exception: ${exceptionNames.join(", ")}${extraCount ? ` +${extraCount}` : ""}`;
+    badgeText = meta.ok.length < 4
+      ? `Only: ${summarizeNames(meta.ok)}`
+      : `Except: ${summarizeNames(meta.failed.map((item) => item.engine))}`;
   }
 
   const badge = document.createElement("span");
@@ -873,13 +1192,18 @@ function applyLatexCompatBadge(row, line) {
   // Store tooltip info as data attribute
   let tooltipText = "";
   if (meta.risky) {
-    const reasons = meta.failed.map((f) => `${f.engine}: ${f.reason}`).join("\n");
-    tooltipText = `Cannot render on any engine:\n${reasons}`;
+    const reasons = meta.failed.slice(0, 3).map((f) => `${f.engine}: ${simplifyReason(f.reason)}`).join("\n");
+    const extraCount = Math.max(0, meta.failed.length - 3);
+    tooltipText = `Passed: none / ${totalRenderers}\n${reasons}${extraCount ? `\n+${extraCount} more` : ""}`;
   } else if (meta.failed && meta.failed.length > 0) {
-    const reasons = meta.failed.map((f) => `${f.engine}: ${f.reason}`).join("\n");
-    tooltipText = `Works on: ${meta.ok.join(", ")}\n\nDoes not work on:\n${reasons}`;
+    const summary = meta.ok.length < 4
+      ? `Only: ${summarizeNames(meta.ok)}`
+      : `Except: ${summarizeNames(meta.failed.map((item) => item.engine))}`;
+    const reasons = meta.failed.slice(0, 3).map((f) => `${f.engine}: ${simplifyReason(f.reason)}`).join("\n");
+    const extraCount = Math.max(0, meta.failed.length - 3);
+    tooltipText = `${summary}\n${reasons}${extraCount ? `\n+${extraCount} more` : ""}`;
   } else if (meta.ok.length > 0) {
-    tooltipText = `Compatible with: ${meta.ok.join(", ")}`;
+    tooltipText = `All ${totalRenderers} passed`;
   }
   
   if (tooltipText) {
@@ -887,6 +1211,10 @@ function applyLatexCompatBadge(row, line) {
     badge.style.cursor = "pointer";
     badge.addEventListener("mouseover", () => showLatexCompatTooltip(badge));
     badge.addEventListener("mouseleave", hideLatexCompatTooltip);
+  }
+
+  if (row.querySelector(".format-space-warning-badge")) {
+    badge.style.bottom = "20px";
   }
   
   row.appendChild(badge);
@@ -898,6 +1226,15 @@ function clearLatexCompatBadgeForRange(range) {
     const row = renderLayer.querySelector(`.render-line[data-line="${lineIdx + 1}"]`);
     if (!row) continue;
     row.querySelectorAll(".latex-compat-badge").forEach((badge) => badge.remove());
+  }
+}
+
+function clearFormatSpaceWarningBadgeForRange(range) {
+  if (!range) return;
+  for (let lineIdx = range.start; lineIdx <= range.end; lineIdx += 1) {
+    const row = renderLayer.querySelector(`.render-line[data-line="${lineIdx + 1}"]`);
+    if (!row) continue;
+    row.querySelectorAll(".format-space-warning-badge").forEach((badge) => badge.remove());
   }
 }
 
@@ -1136,6 +1473,7 @@ function rerenderRange(startLine, endLine, lines) {
     } else {
       row.removeAttribute("title");
     }
+    applyFormatSpaceWarningBadge(row, lines[i] || "", { suppress: getCodeFenceRange(lines, i).inFence });
     applyLatexCompatBadge(row, lines[i] || "");
   }
 
@@ -2459,6 +2797,7 @@ function renderPreview(lines) {
 
   let inFence = false;
   let fenceLang = "plaintext";
+  const lineInCodeFence = new Array(lines.length).fill(false);
 
   const htmlParts = [];
 
@@ -2466,6 +2805,7 @@ function renderPreview(lines) {
     const line = lines[idx];
     const fenceMatch = line.match(/^\s*```([\w+-]*)\s*$/);
     if (fenceMatch) {
+      lineInCodeFence[idx] = true;
       if (!inFence) {
         inFence = true;
         fenceLang = fenceMatch[1] || "plaintext";
@@ -2478,6 +2818,7 @@ function renderPreview(lines) {
     }
 
     if (inFence) {
+      lineInCodeFence[idx] = true;
       const prevLine = idx > 0 ? lines[idx - 1] : "";
       const nextLine = idx + 1 < lines.length ? lines[idx + 1] : "";
       const prevIsFence = /^\s*```([\w+-]*)\s*$/.test(prevLine);
@@ -2541,6 +2882,7 @@ function renderPreview(lines) {
     const lineErrors = findLatexErrors(line);
     const row = renderLayer.querySelector(`.render-line[data-line="${idx + 1}"]`);
     if (!row) return;
+    applyFormatSpaceWarningBadge(row, line, { suppress: lineInCodeFence[idx] });
     applyLatexCompatBadge(row, line);
     if (!lineErrors.length) return;
     row.classList.add("render-line-latex-error");
@@ -2548,6 +2890,7 @@ function renderPreview(lines) {
   });
 
   clearLatexCompatBadgeForRange(activeSuspendRange);
+  clearFormatSpaceWarningBadgeForRange(activeSuspendRange);
 
   renderLayer.querySelectorAll("pre code").forEach((el) => {
     window.hljs.highlightElement(el);
@@ -2570,36 +2913,85 @@ function renderPreview(lines) {
 
 function getMathModeAtCursor(text, cursor) {
   const part = text.slice(0, cursor);
-  let blockOpen = false;
-  let inlineOpen = false;
+  const openStack = [];
+
+  function popLastToken(token) {
+    for (let idx = openStack.length - 1; idx >= 0; idx -= 1) {
+      if (openStack[idx] === token) {
+        openStack.splice(idx, 1);
+        return;
+      }
+    }
+  }
 
   for (let i = 0; i < part.length; i += 1) {
     const ch = part[i];
+    const next = part[i + 1];
 
     if (ch === "\\") {
+      if (next === "(") {
+        openStack.push("\\(");
+        i += 1;
+        continue;
+      }
+      if (next === ")") {
+        popLastToken("\\(");
+        i += 1;
+        continue;
+      }
+      if (next === "[") {
+        openStack.push("\\[");
+        i += 1;
+        continue;
+      }
+      if (next === "]") {
+        popLastToken("\\[");
+        i += 1;
+        continue;
+      }
       i += 1;
       continue;
     }
 
     if (ch === "\n") {
-      inlineOpen = false;
+      for (let idx = openStack.length - 1; idx >= 0; idx -= 1) {
+        if (openStack[idx] === "$") {
+          openStack.splice(idx, 1);
+        }
+      }
       continue;
     }
 
     if (part.slice(i, i + 2) === "$$") {
-      blockOpen = !blockOpen;
-      inlineOpen = false;
+      const hasBlockDollar = openStack.includes("$$");
+      if (hasBlockDollar) {
+        popLastToken("$$");
+      } else {
+        openStack.push("$$");
+      }
       i += 1;
       continue;
     }
 
-    if (ch === "$" && !blockOpen) {
-      inlineOpen = !inlineOpen;
+    if (ch === "$") {
+      const hasInlineDollar = openStack.includes("$");
+      if (hasInlineDollar) {
+        popLastToken("$");
+      } else if (!openStack.includes("$$")) {
+        openStack.push("$");
+      }
     }
   }
 
-  if (blockOpen) return "block";
-  if (inlineOpen) return "inline";
+  if (!openStack.length) return null;
+
+  const active = openStack[openStack.length - 1];
+  if (active === "$$" || active === "\\[") {
+    return { kind: "block", delimiter: active };
+  }
+  if (active === "$" || active === "\\(") {
+    return { kind: "inline", delimiter: active };
+  }
   return null;
 }
 
@@ -2816,7 +3208,16 @@ function closeMathOnEnter(e) {
   if (!mode) return;
 
   const rightPart = value.slice(cursor);
-  if (/^\s*\$\$/.test(rightPart) || /^\s*\$/.test(rightPart)) {
+  const closeToken = mode.delimiter === "$$"
+    ? "$$"
+    : mode.delimiter === "\\["
+      ? "\\]"
+      : mode.delimiter === "\\("
+        ? "\\)"
+        : "$";
+
+  const escapedCloseToken = closeToken.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (new RegExp(`^\\s*${escapedCloseToken}`).test(rightPart)) {
     return;
   }
 
@@ -2827,7 +3228,7 @@ function closeMathOnEnter(e) {
     cursor -= 1;
   }
 
-  const insertion = mode === "block" ? "$$\n" : "$\n";
+  const insertion = `${closeToken}\n`;
   editor.setRangeText(insertion, cursor, cursor, "end");
   refreshAll();
 }
@@ -2894,6 +3295,34 @@ function refreshAll() {
   }
 
   lastValue = editor.value;
+}
+
+function forceRefreshRenderAndChecks() {
+  const lines = editor.value.split("\n");
+  clearAllRestoreTimers();
+  clearRenderDragHighlight();
+  stopRenderDragAutoScroll();
+  isRenderDragging = false;
+  renderDragState = null;
+  renderDragPointer = null;
+  hideLatexCompatTooltip();
+  hideFormatSpaceTooltip();
+
+  if (isRenderEnabled) {
+    activeSuspendRange = null;
+    renderLayer.innerHTML = "";
+    updateLineNumbers(lines);
+    renderPreview(lines);
+    syncSuspendRangeFromCursor();
+    syncRenderSelectionHighlightFromEditor();
+    updateRenderCaret();
+  } else {
+    refreshAll();
+  }
+
+  syncOverlayScroll();
+  toggleMathKeyboard();
+  updateCompatStats();
 }
 
 function openLatexCompatibilityDialog() {
@@ -3688,6 +4117,14 @@ document.addEventListener("click", (e) => {
       hideLatexCompatTooltip();
     }
   }
+
+  const formatSpaceTooltip = document.getElementById("formatSpaceTooltip");
+  if (formatSpaceTooltip && !formatSpaceTooltip.contains(e.target)) {
+    const warningBadge = e.target.closest(".format-space-warning-badge");
+    if (!warningBadge) {
+      hideFormatSpaceTooltip();
+    }
+  }
 });
 
 editor.addEventListener("keydown", (e) => {
@@ -3909,6 +4346,13 @@ lineGuideToggle.addEventListener("change", () => {
 if (latexHintToggle) {
   latexHintToggle.addEventListener("change", () => {
     setLatexHintEnabled(latexHintToggle.checked);
+  });
+}
+
+if (refreshRenderBtn) {
+  refreshRenderBtn.addEventListener("click", () => {
+    forceRefreshRenderAndChecks();
+    editor.focus();
   });
 }
 

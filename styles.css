@@ -209,6 +209,45 @@ body.welcome-open .welcome-screen {
   object-fit: contain;
 }
 
+.brand-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+}
+
+.brand-icon-btn {
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  font-size: 19px;
+  line-height: 1;
+  padding: 3px 4px;
+  cursor: pointer;
+  border-radius: 6px;
+  opacity: 0.78;
+  transition: opacity 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+
+.brand-icon-btn:hover {
+  opacity: 1;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.brand-icon-btn:active {
+  transform: translateY(1px);
+}
+
+.brand-icon-btn:focus-visible {
+  outline: 2px solid rgba(15, 118, 110, 0.45);
+  outline-offset: 1px;
+}
+
+#refreshRenderBtn {
+  font-size: 32px;
+  padding: 5px 7px;
+}
+
 .topbar-right {
   display: flex;
   align-items: center;
@@ -784,6 +823,70 @@ body.math-open .editor-panel {
   color: #b91c1c;
   background: rgba(254, 242, 242, 0.92);
   border-color: rgba(220, 38, 38, 0.25);
+}
+
+.format-space-warning-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  font-size: 10px;
+  line-height: 1.2;
+  color: #b91c1c;
+  background: rgba(254, 242, 242, 0.95);
+  border: 1px solid rgba(220, 38, 38, 0.45);
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.format-space-tooltip {
+  position: fixed;
+  display: none;
+  background: #1f2937;
+  color: #f3f4f6;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: min(520px, calc(100vw - 16px));
+  z-index: 1000;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  animation: tooltipFadeIn 150ms ease-out;
+}
+
+.format-space-tooltip[aria-hidden="false"] {
+  display: block;
+}
+
+.format-space-tooltip-title {
+  color: #fecaca;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.format-space-tooltip-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.format-space-tooltip-snippet + .format-space-tooltip-snippet {
+  margin-top: 6px;
+}
+
+.format-space-hit {
+  background: rgba(220, 38, 38, 0.35);
+  border: 1px solid rgba(254, 202, 202, 0.55);
+  border-radius: 4px;
+  color: #fee2e2;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .latex-compat-tooltip {

@@ -62,6 +62,52 @@
     return out;
   }
 
+  function collectDelimiterIssues(text) {
+    const input = String(text || "");
+    const issues = [];
+
+    let inlineParenDepth = 0;
+    let blockBracketDepth = 0;
+    let inlineDollarOpen = false;
+
+    for (let i = 0; i < input.length; i += 1) {
+      const ch = input[i];
+      const next = input[i + 1];
+      const prev = input[i - 1];
+
+      if (ch === "\\" && (next === "(" || next === ")" || next === "[" || next === "]")) {
+        if (next === "(") inlineParenDepth += 1;
+        if (next === ")") inlineParenDepth = Math.max(0, inlineParenDepth - 1);
+        if (next === "[") blockBracketDepth += 1;
+        if (next === "]") blockBracketDepth = Math.max(0, blockBracketDepth - 1);
+        i += 1;
+        continue;
+      }
+
+      if (ch !== "$") continue;
+      if (prev === "\\") continue;
+
+      if (next === "$") {
+        i += 1;
+        continue;
+      }
+
+      inlineDollarOpen = !inlineDollarOpen;
+    }
+
+    if (inlineParenDepth > 0) {
+      issues.push("unmatched inline delimiter \\( ... \\)");
+    }
+    if (blockBracketDepth > 0) {
+      issues.push("unmatched block delimiter \\[ ... \\]");
+    }
+    if (inlineDollarOpen) {
+      issues.push("unmatched inline dollar delimiter $...$");
+    }
+
+    return issues;
+  }
+
   function statusRank(status) {
     if (status === "risk") return 2;
     if (status === "partial") return 1;
@@ -153,12 +199,12 @@
           reasons.push("KaTeX parser rejected this expression");
         }
       }
-      if (rendererName === "MathJax" || rendererName === "Jupyter") {
-        // Broad heuristic: if KaTeX fails badly, MathJax often still works, but flag partial.
+      if (rendererName === "MathJax" || rendererName === "Jupyter" || rendererName === "Pandoc") {
+        // Broad heuristic: if KaTeX fails badly, other engines may still work, but do not mark as fully pass.
         const ok = options.katexRender(expr, !!exprInfo.isBlock);
         if (!ok) {
           status = worstStatus(status, "partial");
-          reasons.push("may rely on MathJax-only syntax; verify on target");
+          reasons.push("parser mismatch detected; verify on target renderer");
         }
       }
     }
@@ -174,14 +220,17 @@
     const text = String(line || "");
     if (!hasMathContent(text)) return null;
 
+    const delimiterIssues = collectDelimiterIssues(text);
+
     const expressions = extractMathExpressions(text);
     if (!expressions.length) {
+      const reason = delimiterIssues[0] || "math syntax detected but no valid math expression extracted";
       return {
         hasMath: true,
         expressions: [],
         rendererSummary: {},
         ok: [],
-        failed: Object.keys(DB.renderers).map((name) => ({ engine: name, reason: "math syntax detected but no valid math expression extracted" })),
+        failed: Object.keys(DB.renderers).map((name) => ({ engine: name, reason })),
         risky: true,
       };
     }
@@ -202,6 +251,14 @@
         current.reasons = current.reasons.concat(result.reasons.map((r) => `${exprInfo.raw}: ${r}`));
       });
     });
+
+    if (delimiterIssues.length) {
+      Object.keys(DB.renderers).forEach((rendererName) => {
+        const current = rendererSummary[rendererName];
+        current.status = worstStatus(current.status, "risk");
+        current.reasons = current.reasons.concat(delimiterIssues.map((item) => `line syntax: ${item}`));
+      });
+    }
 
     const ok = [];
     const failed = [];

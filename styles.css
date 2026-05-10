@@ -762,17 +762,22 @@ body.math-open .editor-panel {
 
 .latex-compat-badge {
   position: absolute;
-  right: 8px;
-  top: 6px;
-  font-size: 11px;
+  right: 6px;
+  bottom: 4px;
+  top: auto;
+  font-size: 10px;
+  line-height: 1.2;
   color: #0f766e;
   background: rgba(240, 253, 250, 0.9);
   border: 1px solid rgba(15, 118, 110, 0.25);
   border-radius: 999px;
-  padding: 1px 8px;
+  padding: 1px 6px;
   white-space: nowrap;
   pointer-events: auto;
   cursor: pointer;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .latex-compat-badge.is-risk {

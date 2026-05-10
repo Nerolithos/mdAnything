@@ -387,11 +387,13 @@ function updateRenderCaretNow() {
   const col = Math.max(0, Math.min(lineText.length, editor.selectionStart - lineStart));
 
   const editorStyle = window.getComputedStyle(editor);
-  setupLineMeasureLayer(editorStyle);
   const leftPad = parseFloat(editorStyle.paddingLeft) || 0;
-  const x = leftPad + measureLinePrefixX(lineText, col);
+  const rightPad = parseFloat(editorStyle.paddingRight) || 0;
+  const rowWidth = Math.max(1, Math.floor(editor.clientWidth - leftPad - rightPad));
+  const wrappedPos = measureWrappedLineCaretPos(lineText, col, rowWidth, editorStyle);
+  const x = leftPad + wrappedPos.x;
 
-  const y = row.offsetTop + 2;
+  const y = row.offsetTop + wrappedPos.y + 2;
   const lineHeight = parseFloat(editorStyle.lineHeight) || 22;
 
   renderCaret.style.transform = `translate(${Math.max(0, x)}px, ${Math.max(0, y)}px)`;
@@ -495,6 +497,32 @@ function measureLinePrefixX(lineText, col) {
   marker.textContent = "\u200b";
   caretMeasureLayer.appendChild(marker);
   return marker.offsetLeft;
+}
+
+function measureWrappedLineCaretPos(lineText, col, width, style) {
+  const prefix = col > 0 ? lineText.slice(0, col) : "";
+  caretMeasureLayer.style.whiteSpace = "pre-wrap";
+  caretMeasureLayer.style.wordBreak = "break-word";
+  caretMeasureLayer.style.overflowWrap = "break-word";
+  caretMeasureLayer.style.padding = "0";
+  caretMeasureLayer.style.border = "0";
+  caretMeasureLayer.style.width = `${Math.max(1, width)}px`;
+  caretMeasureLayer.style.fontFamily = style.fontFamily;
+  caretMeasureLayer.style.fontSize = style.fontSize;
+  caretMeasureLayer.style.lineHeight = style.lineHeight;
+  caretMeasureLayer.style.fontWeight = style.fontWeight;
+  caretMeasureLayer.style.fontStyle = style.fontStyle;
+  caretMeasureLayer.style.letterSpacing = style.letterSpacing;
+  caretMeasureLayer.style.wordSpacing = style.wordSpacing;
+  caretMeasureLayer.style.textTransform = style.textTransform;
+  caretMeasureLayer.style.tabSize = style.tabSize;
+  caretMeasureLayer.style.textAlign = "left";
+  caretMeasureLayer.style.direction = "ltr";
+  caretMeasureLayer.textContent = prefix;
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  caretMeasureLayer.appendChild(marker);
+  return { x: marker.offsetLeft, y: marker.offsetTop };
 }
 
 function getLineColumnFromClientX(lineIdx, clientX) {
@@ -689,7 +717,23 @@ function stripCodeFences(text) {
 
 function findLatexErrors(text) {
   const errors = [];
-  const content = stripCodeFences(text);
+  const content = stripCodeFences(text || "");
+
+  const exprs = window.LatexCompatModule
+    ? window.LatexCompatModule.extractMathExpressions(content)
+    : [];
+
+  if (exprs.length) {
+    for (const item of exprs) {
+      try {
+        window.katex.renderToString(item.expr, { throwOnError: true, displayMode: !!item.isBlock });
+      } catch (err) {
+        errors.push(String(err.message || err));
+      }
+    }
+    return errors;
+  }
+
   const pattern = /(\$\$([\s\S]*?)\$\$)|(\$([^\n$]+?)\$)/g;
   let match = pattern.exec(content);
   while (match) {
@@ -707,81 +751,30 @@ function findLatexErrors(text) {
 }
 
 function hasLatexContent(line) {
+  if (window.LatexCompatModule) {
+    return window.LatexCompatModule.hasMathContent(line);
+  }
   return /(?<!\\)\$/.test(line) || /\\\(|\\\)|\\\[|\\\]|\\begin\{|\\end\{/.test(line);
 }
 
 function buildLatexCompatMeta(line) {
   if (!hasLatexContent(line)) return null;
 
+  if (window.LatexCompatModule) {
+    return window.LatexCompatModule.analyzeLine(line, { katexRender: tryKatexRender });
+  }
+
   const ok = [];
-  const failed = []; // { engine, reason }
-
-  if (testKatexCompat(line)) {
-    ok.push("KaTeX");
-  } else {
-    failed.push({ engine: "KaTeX", reason: "Unsupported LaTeX syntax or rendering error" });
-  }
-
-  if (testMathJaxCompat(line)) {
-    ok.push("MathJax");
-  } else {
-    failed.push({ engine: "MathJax", reason: "Unsupported LaTeX syntax or rendering error" });
-  }
-
-  if (testGitHubMarkdownCompat(line)) {
-    ok.push("GitHub");
-  } else {
-    // Detect specific failure reason for GitHub
-    let githubReason = "Unsupported syntax";
-    if (/\\\(|\\\)|\\\[|\\\]/.test(line)) {
-      githubReason = "GitHub does not support \\(...\\) or \\[...\\] delimiters";
-    } else if (/\\newcommand|\\renewcommand|\\providecommand|\\def\s*\\|\\gdef/.test(line)) {
-      githubReason = "GitHub does not persist \\newcommand across expressions";
-    } else if (/\$\$(.*\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|smallmatrix).*?)\$\$/s.test(line)) {
-      githubReason = "GitHub renders block matrices compressed into one line";
-    } else {
-      githubReason = "Unsupported LaTeX syntax";
-    }
-    failed.push({ engine: "GitHub", reason: githubReason });
-  }
-
-  if (testMarkdownItCompat(line)) {
-    ok.push("markdown-it");
-  } else {
-    failed.push({ engine: "markdown-it", reason: "Unsupported LaTeX syntax or rendering error" });
-  }
-
-  return {
-    ok,
-    failed,
-    risky: ok.length === 0,
-  };
-}
-
-// Extract all math expressions from a line (both $...$ and $$...$$).
-// Returns array of { expr, isBlock } objects.
-function extractMathExprs(text) {
-  const results = [];
-  // Process block first to avoid double-matching
-  const blockPattern = /\$\$([\s\S]*?)\$\$/g;
-  const inlinePattern = /(?<![\\$])\$(?!\$)((?:[^$\\]|\\[\s\S])*?)\$/g;
-
-  let match;
-  // Mark positions consumed by block expressions
-  const blockRanges = [];
-  while ((match = blockPattern.exec(text))) {
-    results.push({ expr: match[1].trim(), isBlock: true });
-    blockRanges.push([match.index, match.index + match[0].length]);
-  }
-  while ((match = inlinePattern.exec(text))) {
-    const pos = match.index;
-    // Skip if inside a block expression
-    const insideBlock = blockRanges.some(([s, e]) => pos >= s && pos < e);
-    if (!insideBlock) {
-      results.push({ expr: match[1].trim(), isBlock: false });
-    }
-  }
-  return results.filter((r) => r.expr.length > 0);
+  const failed = [];
+  if (testKatexCompat(line)) ok.push("KaTeX");
+  else failed.push({ engine: "KaTeX", reason: "Unsupported LaTeX syntax or rendering error" });
+  if (testMathJaxCompat(line)) ok.push("MathJax");
+  else failed.push({ engine: "MathJax", reason: "Unsupported LaTeX syntax or rendering error" });
+  if (testGitHubMarkdownCompat(line)) ok.push("GitHub");
+  else failed.push({ engine: "GitHub", reason: "Unsupported syntax" });
+  if (testMarkdownItCompat(line)) ok.push("markdown-it");
+  else failed.push({ engine: "markdown-it", reason: "Unsupported LaTeX syntax or rendering error" });
+  return { ok, failed, risky: ok.length === 0 };
 }
 
 function tryKatexRender(expr, displayMode) {
@@ -794,100 +787,31 @@ function tryKatexRender(expr, displayMode) {
   }
 }
 
-// KaTeX: supports $...$ and $$...$$, supports \newcommand, supports matrices in both modes.
-// Does NOT recognize \(...\) or \[...\] — those are MathJax-native, not KaTeX delimiters.
 function testKatexCompat(line) {
-  if (!hasLatexContent(line)) return true;
-
-  // \(...\) and \[...\] are not KaTeX delimiters — KaTeX does not render them as math
-  if (/\\\(|\\\)|\\\[|\\\]/.test(line)) return false;
-
-  const exprs = extractMathExprs(line);
-  if (!exprs.length) return false; // has latex-like content but no recognized delimiters
-
-  return exprs.every(({ expr, isBlock }) => tryKatexRender(expr, isBlock));
+  const meta = buildLatexCompatMeta(line);
+  if (!meta) return true;
+  return !!meta.ok.includes("KaTeX");
 }
 
-// MathJax (standalone): supports $...$, $$...$$, \(...\), \[...\].
-// Supports \newcommand. Supports matrices everywhere.
-// KaTeX is a good proxy for valid LaTeX that MathJax also handles.
 function testMathJaxCompat(line) {
-  if (!hasLatexContent(line)) return true;
-
-  // Extract \(...\) and \[...\] expressions too, and test them via KaTeX
-  const parenExprs = [];
-  let m;
-  const parenInline = /\\\(([\s\S]*?)\\\)/g;
-  const bracketBlock = /\\\[([\s\S]*?)\\\]/g;
-  while ((m = parenInline.exec(line))) parenExprs.push({ expr: m[1].trim(), isBlock: false });
-  while ((m = bracketBlock.exec(line))) parenExprs.push({ expr: m[1].trim(), isBlock: true });
-
-  const dollarExprs = extractMathExprs(line);
-  const allExprs = [...dollarExprs, ...parenExprs].filter((r) => r.expr.length > 0);
-
-  if (!allExprs.length) return false;
-
-  return allExprs.every(({ expr, isBlock }) => tryKatexRender(expr, isBlock));
+  const meta = buildLatexCompatMeta(line);
+  if (!meta) return true;
+  const status = meta.rendererSummary && meta.rendererSummary.MathJax
+    ? meta.rendererSummary.MathJax.status
+    : null;
+  return status === "pass" || status === "partial";
 }
 
-// GitHub README math (via MathJax):
-//   - Supports: $...$ inline, $$...$$ block, ```math block
-//   - Does NOT support: \(...\) or \[...\] (GitHub's parser doesn't enable these)
-//   - Does NOT support: | inside inline $...$ (pipe breaks Markdown table parsing)
-//   - Does NOT support: \newcommand persisting across expressions (GitHub strips macros)
-//   - Matrices (\begin{bmatrix} etc.) work ONLY in $$...$$ blocks, not in inline $...$
-//   - MathJax is used, so valid MathJax LaTeX generally works
 function testGitHubMarkdownCompat(line) {
-  if (!hasLatexContent(line)) return true;
-
-  // GitHub does not enable \(...\) or \[...\] syntax
-  if (/\\\(|\\\)|\\\[|\\\]/.test(line)) return false;
-
-  // \newcommand at top level is not persisted in GitHub's sandboxed MathJax
-  if (/\\newcommand|\\renewcommand|\\providecommand|\\def\s*\\|\\gdef/.test(line)) return false;
-
-  const exprs = extractMathExprs(line);
-  if (!exprs.length) return false;
-
-  for (const { expr, isBlock } of exprs) {
-    // Pipe character inside inline math breaks GitHub table parsing
-    if (!isBlock && expr.includes("|")) return false;
-
-    // Matrices inside any math render poorly on GitHub
-    // Block matrices get compressed into one line (GitHub limitation)
-    if (isBlock && /\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|smallmatrix)/.test(expr)) {
-      return false;
-    }
-
-    // Matrices inside inline $...$ render poorly and are unsupported in practice
-    if (!isBlock && /\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|smallmatrix)/.test(expr)) {
-      return false;
-    }
-
-    if (!tryKatexRender(expr, isBlock)) return false;
-  }
-
-  return true;
+  const meta = buildLatexCompatMeta(line);
+  if (!meta) return true;
+  return !!meta.ok.includes("GitHub");
 }
 
-// markdown-it-texmath (default config):
-//   - Only recognizes $...$ and $$...$$ (dollar delimiters)
-//   - Does NOT recognize \(...\) or \[...\] unless plugin is reconfigured
-//   - Rendering is done by KaTeX, so KaTeX validity applies
 function testMarkdownItCompat(line) {
-  if (!hasLatexContent(line)) return true;
-
-  // markdown-it-texmath default: no \(...\) or \[...\] support
-  if (/\\\(|\\\)|\\\[|\\\]/.test(line)) return false;
-
-  // \newcommand etc. — KaTeX supports it inside one expression, but markdown-it doesn't
-  // process multi-line macro definitions meaningfully
-  if (/^\\newcommand|^\\renewcommand|^\\def\s*\\/.test(line.trim())) return false;
-
-  const exprs = extractMathExprs(line);
-  if (!exprs.length) return false;
-
-  return exprs.every(({ expr, isBlock }) => tryKatexRender(expr, isBlock));
+  const meta = buildLatexCompatMeta(line);
+  if (!meta) return true;
+  return !!meta.ok.includes("markdown-it");
 }
 
 function showLatexCompatTooltip(badge) {
@@ -933,9 +857,18 @@ function applyLatexCompatBadge(row, line) {
   const meta = buildLatexCompatMeta(line);
   if (!meta) return;
 
+  let badgeText = "All Passed";
+  if (meta.risky) {
+    badgeText = "risk";
+  } else if (meta.failed && meta.failed.length > 0) {
+    const exceptionNames = meta.failed.slice(0, 2).map((item) => item.engine);
+    const extraCount = Math.max(0, meta.failed.length - exceptionNames.length);
+    badgeText = `Exception: ${exceptionNames.join(", ")}${extraCount ? ` +${extraCount}` : ""}`;
+  }
+
   const badge = document.createElement("span");
   badge.className = `latex-compat-badge${meta.risky ? " is-risk" : ""}`;
-  badge.textContent = meta.risky ? "Compat: risk" : `Compat: ${meta.ok.join(" / ")}`;
+  badge.textContent = badgeText;
   
   // Store tooltip info as data attribute
   let tooltipText = "";
@@ -957,6 +890,15 @@ function applyLatexCompatBadge(row, line) {
   }
   
   row.appendChild(badge);
+}
+
+function clearLatexCompatBadgeForRange(range) {
+  if (!range) return;
+  for (let lineIdx = range.start; lineIdx <= range.end; lineIdx += 1) {
+    const row = renderLayer.querySelector(`.render-line[data-line="${lineIdx + 1}"]`);
+    if (!row) continue;
+    row.querySelectorAll(".latex-compat-badge").forEach((badge) => badge.remove());
+  }
 }
 
 function rangesEqual(a, b) {
@@ -1114,7 +1056,6 @@ function markRenderRangeSuspended(range, lines) {
     row.classList.remove("render-line-latex-error");
     const escaped = md.utils.escapeHtml(lines[i] || "");
     row.innerHTML = escaped.length ? `<span class="render-editing-raw">${escaped}</span>` : "&nbsp;";
-    applyLatexCompatBadge(row, lines[i] || "");
   }
 }
 
@@ -1218,6 +1159,15 @@ function rerenderRange(startLine, endLine, lines) {
 }
 
 function analyzeLatexCompatibility(markdown) {
+  if (window.LatexCompatModule) {
+    const report = window.LatexCompatModule.analyzeDocument(markdown, { katexRender: tryKatexRender });
+    const issues = report.issues.map((item) => {
+      if (item.key && typeof t === "function") return t(item.key);
+      return String(item.message || item.key || "");
+    });
+    return [...new Set(issues.filter(Boolean))];
+  }
+
   const issues = [];
   const codeFencePattern = /```[\s\S]*?```/g;
   const codeBlocks = markdown.match(codeFencePattern) || [];
@@ -1577,7 +1527,9 @@ function updateCompatStats() {
   if (!compatPass || !compatPartial || !compatRisk) return;
 
   const lines = editor.value.split("\n");
-  const totalEngines = 4;
+  const totalEngines = window.LatexCompatModule
+    ? window.LatexCompatModule.getRendererNames().length
+    : 4;
 
   let pass = 0;
   let partial = 0;
@@ -2595,6 +2547,8 @@ function renderPreview(lines) {
     row.title = lineErrors[0];
   });
 
+  clearLatexCompatBadgeForRange(activeSuspendRange);
+
   renderLayer.querySelectorAll("pre code").forEach((el) => {
     window.hljs.highlightElement(el);
   });
@@ -3416,7 +3370,6 @@ let renderDragPointer = null; // { clientX, clientY }
 let renderDragAutoScrollRafId = 0;
 // Suppress the click event immediately following a drag release
 let suppressNextRenderLayerClick = false;
-
 function updateRenderDragSelectionAt(clientX, clientY) {
   if (!renderDragState || !isRenderEnabled) return;
 

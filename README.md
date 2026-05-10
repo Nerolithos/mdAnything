@@ -1,8 +1,10 @@
 # mdAnything
 
+> **Mathematical Markdown Toolchain, **
+>
+> **CI/CD for technical writing.**
 
-
-An online, lightweight [Markdown smart editor](md.nero-lithos.com). Helps you generate LaTex maths, punctuation marks, tables, code blocks and many more with shortcuts and hotkeys. You can write and download on site, with preview and auxiliary line to help you format your work. Currently in development progress ...
+An online, lightweight [Markdown smart editor](md.nero-lithos.com). Helps you **generate and render LaTex maths**, punctuation marks, tables, code blocks and many more with **shortcuts and hotkeys**. You can write and download on site, with preview and auxiliary line to help you format your work. The key feature is **compatibility test for multiple renderers**.
 
 - **Compatibility Hint**: Tells you how your math blocks compat KaTex, MathJax, GitHub, markdown-it-texmath or other envs. Use mouse to hover above the hint bar to see details.
 
@@ -15,7 +17,6 @@ An online, lightweight [Markdown smart editor](md.nero-lithos.com). Helps you ge
 
 - **Table translator**: Builds or translates table (identifies two or more spaces as divided columns).
 - **File and image insertion**
-
 
 
 

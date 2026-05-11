@@ -2104,6 +2104,27 @@ const mathKeys = [
     snippet: "\\lim_{{{{cond}}}} ",
     fields: [{ key: "cond", label: "趋近条件", defaultValue: "x \\to 0" }],
   },
+    { display: "\\perp", label: "正交", snippet: "\\perp " },
+    {
+      display: "\\lVert x \\rVert", label: "范数",
+      snippet: "\\lVert {{{{x}}}} \\rVert",
+      fields: [{ key: "x", label: "向量", defaultValue: "x" }],
+    },
+    {
+      display: "\\langle u, v \\rangle", label: "内积",
+      snippet: "\\langle {{{{u}}}}, {{{{v}}}} \\rangle",
+      fields: [
+        { key: "u", label: "向量 u", defaultValue: "u" },
+        { key: "v", label: "向量 v", defaultValue: "v" },
+      ],
+    },
+    { display: "\\nabla", label: "梯度符号", snippet: "\\nabla " },
+    { display: "\\emptyset", label: "空集", snippet: "\\emptyset " },
+    { display: "\\mathbb{Q}", label: "有理数", snippet: "\\mathbb{Q}" },
+    { display: "\\mathbb{N}", label: "自然数", snippet: "\\mathbb{N}" },
+    { display: "\\mathbb{Z}", label: "整数", snippet: "\\mathbb{Z}" },
+    { display: "\\mathbb{R}", label: "实数", snippet: "\\mathbb{R}" },
+    { display: "\\mathbb{C}", label: "复数", snippet: "\\mathbb{C}" },
   {
     display: "\\frac{d}{dx}", label: "导数",
     snippet: "\\frac{d {{{{f}}}}}{d {{{{x}}}}}",
@@ -2145,7 +2166,6 @@ const mathKeys = [
   { display: "\\tan", label: "tan", snippet: "\\tan " },
   { display: "\\ln", label: "ln", snippet: "\\ln " },
   { display: "\\log", label: "log", snippet: "\\log " },
-  { display: "\\exp", label: "exp", snippet: "\\exp " },
   // ── 希腊字母 ──
   { display: "\\alpha", label: "α", snippet: "\\alpha " },
   { display: "\\beta", label: "β", snippet: "\\beta " },
@@ -2184,6 +2204,19 @@ const MATH_LABEL_EN = {
   路径: "Path",
   "极限 lim": "Limit lim",
   趋近条件: "Condition",
+  正交: "Orthogonal",
+  范数: "Norm",
+  内积: "Inner Product",
+  向量: "Vector",
+  "向量 u": "Vector u",
+  "向量 v": "Vector v",
+  梯度符号: "Nabla",
+  空集: "Empty Set",
+  有理数: "Rational Numbers",
+  自然数: "Natural Numbers",
+  整数: "Integers",
+  实数: "Real Numbers",
+  复数: "Complex Numbers",
   导数: "Derivative",
   函数: "Function",
   变量: "Variable",
@@ -3087,6 +3120,7 @@ function setRenderMode(enabled) {
 }
 
 function toggleMathKeyboard() {
+  // 强制保持键盘打开状态（模板填充时）
   if (forceMathKeyboardOpen) {
     setMathKeyboardOpen(true);
     return;
@@ -3110,12 +3144,35 @@ function toggleMathKeyboard() {
   }
 }
 
+function needsParentheses(expr) {
+  if (!expr || typeof expr !== "string") return false;
+  const trimmed = expr.trim();
+  if (!trimmed) return false;
+  
+  // 检测是否包含二元操作符或多项式特征
+  // 包括 +, -, *, /, 空格分隔的项
+  const operatorPattern = /[+\-*/]/;
+  const multiTermPattern = /\s+[a-zA-Z0-9]/; // 空格后跟字母或数字
+  
+  return operatorPattern.test(trimmed) || multiTermPattern.test(trimmed);
+}
+
 function buildMathSnippetFromTemplate(item, values) {
   let result = item.snippet;
+  const isDerivative = item.label === "导数" || item.label === "Derivative";
+  const isPartial = item.label === "偏导" || item.label === "Partial Derivative";
+  
   item.fields.forEach((field) => {
     // 占位符使用 {{{key}}}，与 LaTeX 大括号结构可共存
     const token = `{{{${field.key}}}}`;
-    result = result.replaceAll(token, values[field.key] ?? field.defaultValue ?? "");
+    let value = values[field.key] ?? field.defaultValue ?? "";
+    
+    // 对导数/偏导的函数参数应用自动括号（使用圆括号）
+    if ((isDerivative || isPartial) && field.key === "f" && needsParentheses(value)) {
+      value = `(${value})`;
+    }
+    
+    result = result.replaceAll(token, value);
   });
   return result;
 }
@@ -3133,6 +3190,8 @@ function createTemplateFields(fields) {
     input.required = true;
     input.addEventListener("focus", () => {
       lastMathInput = input;
+      // 确保焦点在模板输入框时数学键盘保持打开
+      setMathKeyboardOpen(true);
     });
 
     label.appendChild(input);
@@ -3164,6 +3223,8 @@ function createGridTemplateFields(rows, cols, prefix) {
       input.setAttribute("aria-label", `${prefix}(${r},${c})`);
       input.addEventListener("focus", () => {
         lastMathInput = input;
+        // 确保焦点在网格输入框时数学键盘保持打开
+        setMathKeyboardOpen(true);
       });
       grid.appendChild(input);
     }
@@ -3236,7 +3297,9 @@ function openMathTemplateDialog(item) {
   }
 
   mathTemplateDialog.showModal();
-  toggleMathKeyboard();
+  // 强制保持数学键盘在模板填充时打开
+  forceMathKeyboardOpen = true;
+  setMathKeyboardOpen(true);
 }
 
 function toggleLinePrefix(prefix) {
@@ -4293,6 +4356,7 @@ languageForm.addEventListener("submit", (e) => {
 mathTemplateCancel.addEventListener("click", () => {
   pendingMathTemplate = null;
   lastMathInput = null;
+  forceMathKeyboardOpen = false;
   mathTemplateDialog.close();
   editor.focus();
   toggleMathKeyboard();
@@ -4339,6 +4403,7 @@ mathTemplateForm.addEventListener("submit", (e) => {
   insertMathSnippet(snippet);
   pendingMathTemplate = null;
   lastMathInput = null;
+  forceMathKeyboardOpen = false;
   mathTemplateDialog.close();
   editor.focus();
   toggleMathKeyboard();

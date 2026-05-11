@@ -2,9 +2,9 @@
 
 > **Mathematical Markdown Toolchain, CI/CD for technical writing.**
 
-*Have you ever wrote with bold (\**...**)  but failed rendering because your input method auto-generated whitespaces?*
+*Have you ever wrote with bold (`**...**`) but failed rendering because your input method **auto-generated whitespaces**?*
 
-*Have you ever noticed your LaTex/KaTex math blocks kept being neglected by GitHub or Typora?*
+*Have you ever noticed your LaTex/KaTex math blocks kept being **neglected by GitHub or Typora**?*
 
 
 

@@ -2019,7 +2019,7 @@ const mathKeys = [
   { display: "\\in", label: "∈", snippet: "\\in " },
   { display: "\\notin", label: "∉", snippet: "\\notin " },
   {
-    display: "\\subset", label: "子集关系",
+    display: "\\subset..._{+3}", label: "子集关系",
     snippet: "{{{relation}}}",
     fields: [
       {
@@ -2072,6 +2072,26 @@ const mathKeys = [
     fields: [
       { key: "n", label: "次数", defaultValue: "n" },
       { key: "x", label: "被开方项", defaultValue: "x" },
+    ],
+  },
+  {
+    display: "\\vec{x}..._{+4}", label: "修饰符",
+    snippet: "{{{accentExpr}}}",
+    fields: [
+      {
+        key: "accentExpr",
+        label: "选择修饰符",
+        type: "select",
+        defaultValue: "\\hat{{{{x}}}}",
+        options: [
+          { label: "尖号", value: "\\hat{{{{x}}}}" },
+          { label: "均值/补号", value: "\\bar{{{{x}}}}" },
+          { label: "向量", value: "\\vec{{{{x}}}}" },
+          { label: "波浪号", value: "\\tilde{{{{x}}}}" },
+          { label: "点号", value: "\\dot{{{{x}}}}" },
+        ],
+      },
+      { key: "x", label: "表达式", defaultValue: "x" },
     ],
   },
   {
@@ -2243,6 +2263,12 @@ const MATH_LABEL_EN = {
   被开方项: "Radicand",
   "n次根": "Nth Root",
   取整: "Rounding",
+  修饰符: "Accent",
+  "选择修饰符": "Choose accent",
+  尖号: "Hat",
+  "均值/补号": "Bar",
+  波浪号: "Tilde",
+  点号: "Dot",
   "选择取整方式": "Choose rounding",
   表达式: "Expression",
   子集关系: "Subset Relation",

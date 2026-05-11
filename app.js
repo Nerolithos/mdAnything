@@ -2018,9 +2018,29 @@ const mathKeys = [
   // ── 集合逻辑 ──
   { display: "\\in", label: "∈", snippet: "\\in " },
   { display: "\\notin", label: "∉", snippet: "\\notin " },
-  { display: "\\subset", label: "⊂", snippet: "\\subset " },
+  {
+    display: "\\subset", label: "子集关系",
+    snippet: "{{{relation}}}",
+    fields: [
+      {
+        key: "relation",
+        label: "选择子集符号",
+        type: "select",
+        defaultValue: "\\subset ",
+        options: [
+          { label: "向右真子集 ⊂", value: "\\subset " },
+          { label: "向左真子集 ⊃", value: "\\supset " },
+          { label: "向右子集 ⊆", value: "\\subseteq " },
+          { label: "向左子集 ⊇", value: "\\supseteq " },
+        ],
+      },
+    ],
+  },
   { display: "\\cup", label: "∪", snippet: "\\cup " },
   { display: "\\cap", label: "∩", snippet: "\\cap " },
+  { display: "\\neg", label: "非", snippet: "\\neg " },
+  { display: "\\land", label: "且", snippet: "\\land " },
+  { display: "\\lor", label: "或", snippet: "\\lor " },
   { display: "\\forall", label: "∀", snippet: "\\forall " },
   { display: "\\exists", label: "∃", snippet: "\\exists " },
   // ── 箭头 ──
@@ -2052,6 +2072,23 @@ const mathKeys = [
     fields: [
       { key: "n", label: "次数", defaultValue: "n" },
       { key: "x", label: "被开方项", defaultValue: "x" },
+    ],
+  },
+  {
+    display: "\\lfloor x \\rfloor", label: "取整",
+    snippet: "{{{roundingExpr}}}",
+    fields: [
+      {
+        key: "roundingExpr",
+        label: "选择取整方式",
+        type: "select",
+        defaultValue: "\\lfloor {{{x}}} \\rfloor",
+        options: [
+          { label: "向下取整 ⌊x⌋", value: "\\lfloor {{{x}}} \\rfloor" },
+          { label: "向上取整 ⌈x⌉", value: "\\lceil {{{x}}} \\rceil" },
+        ],
+      },
+      { key: "x", label: "表达式", defaultValue: "x" },
     ],
   },
   {
@@ -2164,8 +2201,22 @@ const mathKeys = [
   { display: "\\sin", label: "sin", snippet: "\\sin " },
   { display: "\\cos", label: "cos", snippet: "\\cos " },
   { display: "\\tan", label: "tan", snippet: "\\tan " },
-  { display: "\\ln", label: "ln", snippet: "\\ln " },
-  { display: "\\log", label: "log", snippet: "\\log " },
+  {
+    display: "\\ln", label: "ln",
+    snippet: "\\ln_{ {{{base}}} } {{{arg}}}",
+    fields: [
+      { key: "base", label: "底数", defaultValue: "e" },
+      { key: "arg", label: "操作数", defaultValue: "x" },
+    ],
+  },
+  {
+    display: "\\log", label: "log",
+    snippet: "\\log_{ {{{base}}} } {{{arg}}}",
+    fields: [
+      { key: "base", label: "底数", defaultValue: "10" },
+      { key: "arg", label: "操作数", defaultValue: "x" },
+    ],
+  },
   // ── 希腊字母 ──
   { display: "\\alpha", label: "α", snippet: "\\alpha " },
   { display: "\\beta", label: "β", snippet: "\\beta " },
@@ -2191,6 +2242,22 @@ const MATH_LABEL_EN = {
   根号: "Square Root",
   被开方项: "Radicand",
   "n次根": "Nth Root",
+  取整: "Rounding",
+  "选择取整方式": "Choose rounding",
+  表达式: "Expression",
+  子集关系: "Subset Relation",
+  "选择子集符号": "Choose subset symbol",
+  "向下取整 ⌊x⌋": "Floor ⌊x⌋",
+  "向上取整 ⌈x⌉": "Ceil ⌈x⌉",
+  "向右真子集 ⊂": "Proper Subset (Right) ⊂",
+  "向左真子集 ⊃": "Proper Subset (Left) ⊃",
+  "向右子集 ⊆": "Subset (Right) ⊆",
+  "向左子集 ⊇": "Subset (Left) ⊇",
+  底数: "Base",
+  操作数: "Operand",
+  非: "Not",
+  且: "And",
+  或: "Or",
   次数: "Index",
   "求和 Σ": "Summation Σ",
   下限: "Lower bound",
@@ -2240,6 +2307,12 @@ function localizeMathItems() {
       ? item.fields.map((field) => ({
           ...field,
           label: MATH_LABEL_EN[field.label] || field.label,
+          options: Array.isArray(field.options)
+            ? field.options.map((opt) => ({
+                ...opt,
+                label: MATH_LABEL_EN[opt.label] || opt.label,
+              }))
+            : field.options,
         }))
       : item.fields,
   }));
@@ -3161,6 +3234,7 @@ function buildMathSnippetFromTemplate(item, values) {
   let result = item.snippet;
   const isDerivative = item.label === "导数" || item.label === "Derivative";
   const isPartial = item.label === "偏导" || item.label === "Partial Derivative";
+  const isLogLike = item.label === "log" || item.label === "ln";
   
   item.fields.forEach((field) => {
     // 占位符使用 {{{key}}}，与 LaTeX 大括号结构可共存
@@ -3169,6 +3243,11 @@ function buildMathSnippetFromTemplate(item, values) {
     
     // 对导数/偏导的函数参数应用自动括号（使用圆括号）
     if ((isDerivative || isPartial) && field.key === "f" && needsParentheses(value)) {
+      value = `(${value})`;
+    }
+
+    // log / ln: 底数与操作数都使用同样的自动数学括号逻辑
+    if (isLogLike && (field.key === "base" || field.key === "arg") && needsParentheses(value)) {
       value = `(${value})`;
     }
     
@@ -3184,24 +3263,44 @@ function createTemplateFields(fields) {
     const label = document.createElement("label");
     label.textContent = field.label;
 
-    const input = document.createElement("input");
-    input.name = field.key;
-    input.value = field.defaultValue ?? "";
-    input.required = true;
-    input.addEventListener("focus", () => {
-      lastMathInput = input;
-      // 确保焦点在模板输入框时数学键盘保持打开
-      setMathKeyboardOpen(true);
-    });
+    const isSelect = field.type === "select" && Array.isArray(field.options) && field.options.length;
+    if (isSelect) {
+      const select = document.createElement("select");
+      select.name = field.key;
+      field.options.forEach((opt) => {
+        const option = document.createElement("option");
+        option.value = opt.value;
+        option.textContent = opt.label;
+        select.appendChild(option);
+      });
+      select.value = field.defaultValue ?? field.options[0].value;
+      select.addEventListener("focus", () => {
+        setMathKeyboardOpen(true);
+      });
+      label.appendChild(select);
+    } else {
+      const input = document.createElement("input");
+      input.name = field.key;
+      input.value = field.defaultValue ?? "";
+      input.required = true;
+      input.addEventListener("focus", () => {
+        lastMathInput = input;
+        // 确保焦点在模板输入框时数学键盘保持打开
+        setMathKeyboardOpen(true);
+      });
 
-    label.appendChild(input);
+      label.appendChild(input);
+    }
+
     mathTemplateFields.appendChild(label);
   });
 
-  const firstInput = mathTemplateFields.querySelector("input");
-  if (firstInput) {
-    firstInput.focus();
-    lastMathInput = firstInput;
+  const firstControl = mathTemplateFields.querySelector("input, select");
+  if (firstControl) {
+    firstControl.focus();
+    if (firstControl.tagName === "INPUT") {
+      lastMathInput = firstControl;
+    }
   }
 }
 
@@ -4382,8 +4481,8 @@ mathTemplateForm.addEventListener("submit", (e) => {
   const values = {};
   if (pendingMathTemplate.fields && pendingMathTemplate.fields.length) {
     pendingMathTemplate.fields.forEach((field) => {
-      const input = mathTemplateFields.querySelector(`input[name=\"${field.key}\"]`);
-      values[field.key] = input ? input.value.trim() : field.defaultValue ?? "";
+      const control = mathTemplateFields.querySelector(`[name=\"${field.key}\"]`);
+      values[field.key] = control ? control.value.trim() : field.defaultValue ?? "";
     });
   } else if (pendingMathTemplate.stage === "values" && sizedTemplateMeta[pendingMathTemplate.type]) {
     const gridInputs = mathTemplateFields.querySelectorAll("input[name^=\"g_\"]");

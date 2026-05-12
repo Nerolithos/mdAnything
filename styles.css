@@ -209,6 +209,16 @@ body.welcome-open .welcome-screen {
   object-fit: contain;
 }
 
+.brand-home-trigger {
+  cursor: pointer;
+}
+
+.brand-home-trigger:focus-visible {
+  outline: 2px solid rgba(15, 118, 110, 0.45);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 .brand-actions {
   display: inline-flex;
   align-items: center;

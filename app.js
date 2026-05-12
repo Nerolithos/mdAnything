@@ -59,6 +59,8 @@ const compatPass = document.getElementById("compatPass");
 const compatPartial = document.getElementById("compatPartial");
 const compatRisk = document.getElementById("compatRisk");
 const refreshRenderBtn = document.getElementById("refreshRenderBtn");
+const brandHomeIcon = document.getElementById("brandHomeIcon");
+const brandHomeText = document.getElementById("brandHomeText");
 const renderCaret = document.createElement("span");
 renderCaret.className = "render-caret";
 
@@ -899,6 +901,11 @@ function isLikelyClosingBoundaryChar(char) {
   return /[\s.,;:!?)}\]>",'"，。！？；：、）】》]/.test(char);
 }
 
+function isLikelyOpeningBoundaryChar(char) {
+  if (!char) return true;
+  return /[\s([{<"'，。！？；：、（【《]/.test(char);
+}
+
 function isEscapedAt(text, index) {
   let slashCount = 0;
   for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) {
@@ -1106,17 +1113,82 @@ function collectUnexpectedOpenSpaceRangesForToken(text, token, options = {}) {
       if (prev === token || next === token) continue;
     }
 
+    const prevChar = text[i - 1] || "";
+    if (!isLikelyOpeningBoundaryChar(prevChar)) continue;
+
     const nextChar = text[i + tokenLen] || "";
     if (!isWhitespaceChar(nextChar)) continue;
 
     const closerIdx = findNextCloser(i + tokenLen);
-    if (closerIdx < 0) continue;
+    if (closerIdx < 0) {
+      if (options.allowUnmatchedLeadingSpaceHit && /\S/.test(text.slice(i + tokenLen))) {
+        hits.push([i, i + tokenLen]);
+      }
+      continue;
+    }
 
     const innerText = text.slice(i + tokenLen, closerIdx);
     if (!/\S/.test(innerText)) continue;
 
     hits.push([i, closerIdx + tokenLen]);
     i = closerIdx + tokenLen - 1;
+  }
+
+  return hits;
+}
+
+function collectLeadingSpaceOpenerHits(text, token, options = {}) {
+  const tokenLen = token.length;
+  const hits = [];
+
+  for (let i = 0; i <= text.length - tokenLen; i += 1) {
+    if (text.slice(i, i + tokenLen) !== token) continue;
+    if (isEscapedAt(text, i)) continue;
+    if (isInRanges(i, options.skipRanges || [])) continue;
+
+    const prevChar = text[i - 1] || "";
+    const nextChar = text[i + tokenLen] || "";
+    if (!isLikelyOpeningBoundaryChar(prevChar)) continue;
+    if (!isWhitespaceChar(nextChar)) continue;
+
+    if (!/\S/.test(text.slice(i + tokenLen))) continue;
+    hits.push([i, i + tokenLen]);
+  }
+
+  return hits;
+}
+
+function collectUnmatchedTrailingSpaceCloserHits(text, token, options = {}) {
+  const tokenLen = token.length;
+  const hits = [];
+  const stack = [];
+
+  for (let i = 0; i <= text.length - tokenLen; i += 1) {
+    if (text.slice(i, i + tokenLen) !== token) continue;
+    if (isEscapedAt(text, i)) continue;
+    if (isInRanges(i, options.skipRanges || [])) continue;
+
+    const prevChar = text[i - 1] || "";
+    const nextChar = text[i + tokenLen] || "";
+    const prevIsSpace = isWhitespaceChar(prevChar);
+    const nextIsSpace = isWhitespaceChar(nextChar);
+    const canOpen = !nextIsSpace;
+    const canClose = !prevIsSpace;
+
+    if (nextIsSpace && canClose && stack.length === 0) {
+      // Looks like a closer token with trailing space, but no opener exists.
+      hits.push([i, i + tokenLen]);
+      continue;
+    }
+
+    if (canClose && stack.length > 0) {
+      stack.pop();
+      continue;
+    }
+
+    if (canOpen) {
+      stack.push(i);
+    }
   }
 
   return hits;
@@ -1152,9 +1224,9 @@ function collectUnexpectedSpaceHighlightRanges(line) {
 
   const inlineMath = collectInlineMathRangesAndIssues(text);
   const checks = [
-    { token: "**" },
-    { token: "__" },
-    { token: "~~" },
+    { token: "**", allowUnmatchedLeadingSpaceHit: true },
+    { token: "__", allowUnmatchedLeadingSpaceHit: true },
+    { token: "~~", allowUnmatchedLeadingSpaceHit: true },
     { token: "*", excludeRepeated: true },
     { token: "_", excludeRepeated: true },
   ];
@@ -1162,9 +1234,22 @@ function collectUnexpectedSpaceHighlightRanges(line) {
   checks.forEach((item) => {
     const openerHits = collectUnexpectedOpenSpaceRangesForToken(text, item.token, {
       excludeRepeated: item.excludeRepeated,
+      allowUnmatchedLeadingSpaceHit: item.allowUnmatchedLeadingSpaceHit,
       skipRanges: inlineMath.ranges,
     });
     openerHits.forEach((range) => ranges.push(range));
+
+    if (item.allowUnmatchedLeadingSpaceHit) {
+      const strictOpenHits = collectLeadingSpaceOpenerHits(text, item.token, {
+        skipRanges: inlineMath.ranges,
+      });
+      strictOpenHits.forEach((range) => ranges.push(range));
+
+      const unmatchedCloserHits = collectUnmatchedTrailingSpaceCloserHits(text, item.token, {
+        skipRanges: inlineMath.ranges,
+      });
+      unmatchedCloserHits.forEach((range) => ranges.push(range));
+    }
 
     const tokenHits = collectUnexpectedSpaceRangesForToken(text, item.token, {
       excludeRepeated: item.excludeRepeated,
@@ -1180,6 +1265,50 @@ function hasUnexpectedSpaceBeforeClosingDelimiter(line) {
   return collectUnexpectedSpaceHighlightRanges(line).length > 0;
 }
 
+function collectDelimiterTokensFromRanges(line, ranges) {
+  const source = stripInlineCodeForLint(line || "");
+  const tokenOrder = ["**", "__", "~~", "*", "_", "$"];
+  const tokens = [];
+
+  ranges.forEach(([start, end]) => {
+    const snippet = source.slice(start, end);
+    tokenOrder.forEach((token) => {
+      if (!snippet.includes(token)) return;
+      if (!tokens.includes(token)) {
+        tokens.push(token);
+      }
+    });
+  });
+
+  return tokens;
+}
+
+function hasUnrenderedDelimiterInRow(row, tokens) {
+  if (!row || !tokens || !tokens.length) return false;
+
+  const probe = row.cloneNode(true);
+  probe.querySelectorAll("code, pre, .katex, .katex-display, script, style").forEach((node) => {
+    node.remove();
+  });
+
+  const renderedText = probe.textContent || "";
+  return tokens.some((token) => renderedText.includes(token));
+}
+
+function shouldKeepUnexpectedSpaceWarning(row, tokens) {
+  if (!tokens || !tokens.length) return false;
+
+  // Multi-char delimiters are explicit syntax units; if spacing heuristic hits,
+  // keep warning even when renderer tolerates the pattern.
+  const alwaysWarnTokens = ["**", "__", "~~", "$"];
+  if (tokens.some((token) => alwaysWarnTokens.includes(token))) {
+    return true;
+  }
+
+  // Single-char * / _ are more ambiguous; use rendered residue check as a guard.
+  return hasUnrenderedDelimiterInRow(row, tokens);
+}
+
 function applyFormatSpaceWarningBadge(row, line, options = {}) {
   if (!row) return;
   row.querySelectorAll(".format-space-warning-badge").forEach((badge) => badge.remove());
@@ -1187,6 +1316,9 @@ function applyFormatSpaceWarningBadge(row, line, options = {}) {
   if (options.suppress) return;
   const hitRanges = collectUnexpectedSpaceHighlightRanges(line);
   if (!hitRanges.length) return;
+
+  const tokens = collectDelimiterTokensFromRanges(line, hitRanges);
+  if (!shouldKeepUnexpectedSpaceWarning(row, tokens)) return;
 
   const badge = document.createElement("span");
   badge.className = "format-space-warning-badge";
@@ -3756,6 +3888,12 @@ function setWelcomeScreenVisible(visible) {
   }
 }
 
+function returnToWelcomeScreen() {
+  finishOnboarding();
+  setMathKeyboardOpen(false);
+  setWelcomeScreenVisible(true);
+}
+
 function startWorkspace({ firstOpen, showOnboarding }) {
   const shouldApplyStarter = firstOpen || editor.value.trim().length === 0;
 
@@ -4651,6 +4789,19 @@ if (onboardingOverlay) {
     e.preventDefault();
   });
 }
+
+[brandHomeIcon, brandHomeText].forEach((node) => {
+  if (!node) return;
+  node.addEventListener("click", () => {
+    returnToWelcomeScreen();
+  });
+  node.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      returnToWelcomeScreen();
+    }
+  });
+});
 
 loadCustomMathBinding();
 bindToolbarActions();

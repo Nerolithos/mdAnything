@@ -7,7 +7,8 @@
   }
 
   function stripCodeFences(text) {
-    return (text || "").replace(/```[\s\S]*?```/g, "");
+    // Keep GitHub math fences, but exclude ordinary fenced code from math checks.
+    return (text || "").replace(/(^|\n)(`{3,}|~{3,})(?!\s*math\s*(?:\n|$))[^\n]*\n[\s\S]*?\n\2(?=\n|$)/g, "$1");
   }
 
   function extractMathExpressions(text) {
@@ -28,8 +29,14 @@
     }
 
     const blockRanges = [];
-    const dollarBlock = /\$\$([\s\S]*?)\$\$/g;
+    const gfmInline = /\$`([\s\S]*?)`\$/g;
     let m;
+    while ((m = gfmInline.exec(input))) {
+      pushExpr(m[0], m[1], "inline-gfm", false, m.index, m.index + m[0].length);
+      blockRanges.push([m.index, m.index + m[0].length]);
+    }
+
+    const dollarBlock = /\$\$([\s\S]*?)\$\$/g;
     while ((m = dollarBlock.exec(input))) {
       pushExpr(m[0], m[1], "block-dollar", true, m.index, m.index + m[0].length);
       blockRanges.push([m.index, m.index + m[0].length]);
@@ -53,9 +60,9 @@
       pushExpr(m[0], m[1], "block-bracket", true, m.index, m.index + m[0].length);
     }
 
-    const fencedMath = /```\s*math\s*\n([\s\S]*?)```/g;
+    const fencedMath = /(`{3,}|~{3,})\s*math\s*\n([\s\S]*?)\1/g;
     while ((m = fencedMath.exec(input))) {
-      pushExpr(m[0], m[1], "fenced-math", true, m.index, m.index + m[0].length);
+      pushExpr(m[0], m[2], "fenced-math", true, m.index, m.index + m[0].length);
     }
 
     out.sort((a, b) => a.start - b.start || a.end - b.end);
@@ -126,7 +133,10 @@
     const delim = exprInfo.delimiter;
     const delimSupported = renderer.supportsDelimiters.includes(delim);
     if (!delimSupported) {
-      if (delim === "inline-paren" || delim === "block-bracket") {
+      if ((renderer.configurableDelimiters || []).includes(delim)) {
+        status = worstStatus(status, "partial");
+        reasons.push(`delimiter ${delim} requires renderer configuration`);
+      } else if (delim === "inline-paren" || delim === "block-bracket") {
         if (renderer.supportsParenDelimiters === "partial") {
           status = worstStatus(status, "partial");
           reasons.push("delimiter support depends on extensions/config");
@@ -146,21 +156,16 @@
 
     if (rendererName === "GitHub") {
       if (hasCommandDef) {
-        status = worstStatus(status, "risk");
-        reasons.push("macro definitions are not reliably persisted across expressions");
+        status = worstStatus(status, "partial");
+        reasons.push("macro scope across separate GitHub expressions is not guaranteed by the documented syntax");
       }
-      if (!exprInfo.isBlock && DB.patterns.tablePipe.test(expr)) {
-        status = worstStatus(status, "risk");
-        reasons.push("pipe in inline math can break markdown table parsing");
+      if (!exprInfo.isBlock && delim === "inline-dollar" && DB.patterns.tablePipe.test(expr)) {
+        status = worstStatus(status, "partial");
+        reasons.push("plain dollar math with a pipe can conflict with markdown tables; use GitHub's backtick form in tables");
       }
-      if (hasMatrix) {
-        if (exprInfo.isBlock) {
-          status = worstStatus(status, "partial");
-          reasons.push("matrix blocks may render with layout differences");
-        } else {
-          status = worstStatus(status, "risk");
-          reasons.push("matrix environments should be block math on GitHub");
-        }
+      if (hasMatrix && !exprInfo.isBlock) {
+        status = worstStatus(status, "risk");
+        reasons.push("matrix environments should be block math on GitHub");
       }
     }
 
@@ -185,13 +190,18 @@
       reasons.push("Obsidian docs recommend dollar delimiters for MathJax");
     }
 
+    if (rendererName === "Stack Overflow" && (delim === "inline-paren" || delim === "block-bracket" || delim === "inline-gfm" || delim === "fenced-math")) {
+      status = worstStatus(status, "risk");
+      reasons.push("Stack Overflow authoring syntax uses dollar delimiters");
+    }
+
     if ((rendererName === "KaTeX" || rendererName === "markdown-it") && hasCommandDef) {
       status = worstStatus(status, "partial");
       reasons.push("macro persistence can vary with runtime options");
     }
 
     if (typeof options.katexRender === "function") {
-      const useKatexCheck = rendererName === "KaTeX" || rendererName === "GitHub" || rendererName === "Obsidian" || rendererName === "markdown-it";
+      const useKatexCheck = rendererName === "KaTeX" || rendererName === "markdown-it";
       if (useKatexCheck) {
         const ok = options.katexRender(expr, !!exprInfo.isBlock);
         if (!ok) {
@@ -199,7 +209,7 @@
           reasons.push("KaTeX parser rejected this expression");
         }
       }
-      if (rendererName === "MathJax" || rendererName === "Jupyter" || rendererName === "Pandoc") {
+      if (rendererName === "MathJax" || rendererName === "GitHub" || rendererName === "Obsidian" || rendererName === "Stack Overflow" || rendererName === "Jupyter" || rendererName === "Pandoc") {
         // Broad heuristic: if KaTeX fails badly, other engines may still work, but do not mark as fully pass.
         const ok = options.katexRender(expr, !!exprInfo.isBlock);
         if (!ok) {
@@ -291,31 +301,32 @@
     const issues = [];
 
     const noCode = stripCodeFences(text);
-    const dollars = noCode.match(/(?<!\\)\$/g) || [];
-    if (dollars.length % 2 !== 0) {
-      issues.push({ key: "latexIssueUnmatchedDollar", severity: "risk" });
-    }
+    const expressions = extractMathExpressions(noCode);
+    const unparsed = Array.from(noCode);
+    expressions.forEach((expr) => {
+      for (let i = expr.start; i < expr.end; i += 1) unparsed[i] = " ";
+      const line = noCode.slice(0, expr.start).split("\n").length;
+      const report = analyzeLine(expr.raw, options);
+      if (report) lineReports.push({ line, report });
+    });
 
-    if (DB.patterns.alignEnvironment.test(noCode)) {
-      issues.push({ key: "latexIssueAlignEnv", severity: "partial" });
+    if (/(?<!\\)\$/.test(unparsed.join(""))) {
+      issues.push({ key: "latexIssueUnmatchedDollar", severity: "risk" });
     }
 
     if (/\\\(|\\\)|\\\[|\\\]/.test(noCode)) {
       issues.push({ key: "latexIssueParenDelimiters", severity: "partial" });
     }
 
-    const codeFencePattern = /```[\s\S]*?```/g;
+    const codeFencePattern = /(^|\n)(`{3,}|~{3,})(?!\s*math\s*(?:\n|$))[^\n]*\n[\s\S]*?\n\2(?=\n|$)/g;
     const codeBlocks = text.match(codeFencePattern) || [];
     if (codeBlocks.some((block) => /(?<!\\)\$|\\begin\{/.test(block))) {
       issues.push({ key: "latexIssueCodeFenceMath", severity: "partial" });
     }
 
     lines.forEach((line, index) => {
-      const report = analyzeLine(line, options);
-      if (!report) return;
-      lineReports.push({ line: index + 1, report });
-
-      if (line.includes("|") && /(?<!\\)\$/.test(line)) {
+      const inlineExpressions = extractMathExpressions(line).filter((item) => !item.isBlock);
+      if (inlineExpressions.some((item) => item.delimiter === "inline-dollar" && /(?<!\\)\|/.test(item.expr))) {
         issues.push({ key: "latexIssueTableMath", severity: "partial", line: index + 1 });
       }
     });

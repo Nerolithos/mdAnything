@@ -134,9 +134,9 @@ const I18N = {
     latexCompatSummaryOk: "未发现明显兼容性风险。",
     latexCompatSummaryIssues: "发现 {count} 项兼容性风险，建议处理后再发布。",
     latexIssueUnmatchedDollar: "检测到不成对的 $ 定界符，部分渲染器会直接跳过该公式。建议检查转义与闭合。",
-    latexIssueTableMath: "表格中的公式在 GitHub / 部分 Markdown 渲染链中经常失败。建议改成表格外块级公式，或预渲染为图片。",
+    latexIssueTableMath: "检测到普通 $...$ 公式内的未转义竖线；在 Markdown 表格中可能先被当作列分隔符。GitHub 可改用 $`...`$，或按目标平台转义竖线。",
     latexIssueParenDelimiters: "检测到 \\( ... \\) 或 \\[ ... \\] 定界符；部分 markdown-it 配置默认不识别。建议统一改为 $...$ 与 $$...$$。",
-    latexIssueAlignEnv: "检测到 align/aligned 环境，KaTeX 与 GitHub 渲染策略可能不同。建议用 $$...$$ 包裹并在目标平台先验证。",
+    latexIssueAlignEnv: "检测到 align/aligned 环境；请确保它位于目标平台支持的块级数学定界符内。",
     latexIssueCodeFenceMath: "代码块中出现数学定界符，发布后通常不会按公式渲染。建议移出代码块。",
     latexIssueBlockSpacing: "检测到 $$ 块公式与正文紧贴，部分引擎会误判。建议在公式前后保留空行。",
     latexIssueEngineHint: "引擎提示：GitHub（MathJax）与本地 markdown-it-texmath/KaTeX 语法覆盖不同，发布前请做双端预览。",
@@ -235,9 +235,9 @@ const I18N = {
     latexCompatSummaryOk: "No obvious compatibility risks were detected.",
     latexCompatSummaryIssues: "Detected {count} compatibility risks. Fix these before publishing.",
     latexIssueUnmatchedDollar: "Unmatched $ delimiters detected. Some renderers skip these formulas entirely. Check escaping and closing delimiters.",
-    latexIssueTableMath: "Math inside tables often fails in GitHub or some Markdown pipelines. Consider moving formulas outside tables or pre-rendering as images.",
+    latexIssueTableMath: "Found an unescaped pipe inside plain $...$ math; Markdown tables may treat it as a column separator first. On GitHub use $`...`$, or escape it as required by the target.",
     latexIssueParenDelimiters: "Found \\( ... \\) or \\[ ... \\] delimiters. Some markdown-it setups do not parse them by default. Prefer $...$ and $$...$$.",
-    latexIssueAlignEnv: "Detected align/aligned environments; KaTeX and GitHub may behave differently. Wrap with $$...$$ and verify on target platforms.",
+    latexIssueAlignEnv: "Found an align/aligned environment. Keep it inside a block-math delimiter supported by the target platform.",
     latexIssueCodeFenceMath: "Math delimiters were found inside code fences, where formulas usually won't render. Move them outside the code block.",
     latexIssueBlockSpacing: "Detected $$ blocks adjacent to normal text. Some engines mis-parse this. Keep a blank line before and after block math.",
     latexIssueEngineHint: "Engine hint: GitHub (MathJax) and local markdown-it-texmath/KaTeX do not have identical syntax coverage. Always preview in both.",
@@ -1359,7 +1359,7 @@ function applyLatexCompatBadge(row, line) {
       .replace("KaTeX parser rejected this expression", "parser rejected")
       .replace("may rely on MathJax-only syntax; verify on target", "needs target verification")
       .replace("pipe in inline math can break markdown table parsing", "inline pipe may break tables")
-      .replace("macro definitions are not reliably persisted across expressions", "macro persistence is unreliable")
+      .replace("macro scope across separate GitHub expressions is not guaranteed by the documented syntax", "cross-expression macro scope is undocumented")
       .replace("matrix environments should be block math on GitHub", "matrix should use block math")
       .replace("matrix blocks may render with layout differences", "matrix layout may differ")
       .replace("delimiter support depends on extensions/config", "delimiter depends on config")

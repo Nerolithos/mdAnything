@@ -1,6 +1,6 @@
 (function initLatexCompatDatabase(global) {
   const LATEX_COMPAT_DATABASE = {
-    version: "2026-05-10",
+    version: "2026-09-06",
     sources: [
       {
         name: "GitHub math expressions",
@@ -16,7 +16,11 @@
       },
       {
         name: "Obsidian advanced formatting syntax",
-        url: "https://obsidian.md/help/Editing+and+formatting/Advanced+formatting+syntax#Math",
+        url: "https://help.obsidian.md/advanced-syntax#Math",
+      },
+      {
+        name: "Stack Exchange MathJax guidance",
+        url: "https://math.meta.stackexchange.com/questions/5020/mathjax-basic-tutorial-and-quick-reference",
       },
       {
         name: "Jupyter notebook typesetting equations",
@@ -35,16 +39,23 @@
       },
       MathJax: {
         id: "mathjax",
-        supportsDelimiters: ["inline-dollar", "block-dollar", "inline-paren", "block-bracket"],
+        // MathJax itself does not enable single-dollar inline math by default.
+        supportsDelimiters: ["block-dollar", "inline-paren", "block-bracket"],
         supportsParenDelimiters: true,
+        configurableDelimiters: ["inline-dollar"],
       },
       GitHub: {
         id: "github",
-        supportsDelimiters: ["inline-dollar", "block-dollar", "fenced-math"],
+        supportsDelimiters: ["inline-dollar", "inline-gfm", "block-dollar", "fenced-math"],
         supportsParenDelimiters: false,
       },
       Obsidian: {
         id: "obsidian",
+        supportsDelimiters: ["inline-dollar", "block-dollar"],
+        supportsParenDelimiters: false,
+      },
+      "Stack Overflow": {
+        id: "stackoverflow",
         supportsDelimiters: ["inline-dollar", "block-dollar"],
         supportsParenDelimiters: false,
       },
@@ -57,6 +68,7 @@
         id: "pandoc",
         supportsDelimiters: ["inline-dollar", "block-dollar"],
         supportsParenDelimiters: "partial",
+        configurableDelimiters: ["inline-gfm", "fenced-math"],
       },
       "markdown-it": {
         id: "markdown-it",
@@ -65,7 +77,7 @@
       },
     },
     patterns: {
-      hasMathHint: /(?<!\\)\$|\\\(|\\\)|\\\[|\\\]|\\begin\{|\\end\{|```\s*math/,
+      hasMathHint: /(?<!\\)\$|\\\(|\\\)|\\\[|\\\]|\\begin\{|\\end\{|(?:`{3,}|~{3,})\s*math/,
       commandDefinition: /\\newcommand|\\renewcommand|\\providecommand|\\def\s*\\|\\gdef/,
       matrixEnvironment: /\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|smallmatrix)/,
       alignEnvironment: /\\begin\{align\*?\}|\\begin\{aligned\}/,

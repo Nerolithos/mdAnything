@@ -14,7 +14,7 @@ You're not alone! Many StackOverflow and Reddit users noted this godforsaken exp
 
 Try [mdAnything](md.nero-lithos.com)! A lightweight Markdown toolchain. Helps you **generate and render LaTex maths**, punctuation marks, tables, code blocks and many more with **shortcuts and hotkeys**. You can write and download on site, with preview and auxiliary line to help you format your work. The key feature is **compatibility test for multiple renderers**.
 
-- **Compatibility Hint**: Tells you how your math blocks compat KaTex, MathJax, GitHub, markdown-it-texmath or other envs. Use mouse to hover above the hint bar to see details.
+- **Compatibility Hint**: Checks math delimiters and TeX input against KaTeX, default MathJax, GitHub, Obsidian, Stack Overflow, Jupyter, Pandoc, and this app's markdown-it-texmath configuration. Hover over a hint badge for details. Results are conservative static checks, not a substitute for previewing the exact target version and configuration.
 
 ![CompatHint](https://i.postimg.cc/76p4msRZ/jie-ping2026-05-10-13-48-28.png)
 
@@ -25,7 +25,6 @@ Try [mdAnything](md.nero-lithos.com)! A lightweight Markdown toolchain. Helps yo
 
 - **Table translator**: Builds or translates table (identifies two or more spaces as divided columns).
 - **File and image insertion**
-
 
 
 
